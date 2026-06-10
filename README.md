@@ -8,7 +8,7 @@ This project is based on the original **PDF-Goon** tool by **Dnkz**, shared on t
 
 > https://forums.e-hentai.org/index.php?showtopic=293338
 
-PDF-Goon X is a refactored, modular rewrite of the original single-file script into a proper pip-installable Python package with clean module boundaries, type safety, and testability.
+PDF-Goon X v1.0 is a refactored, modular rewrite of the original single-file script into a proper pip-installable Python package with clean module boundaries, type safety, and testability.
 
 ## Features
 

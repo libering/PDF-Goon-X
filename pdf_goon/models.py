@@ -9,7 +9,7 @@ from pathlib import Path
 
 # --- Constants ---
 
-VERSION: str = "1.0.1"
+VERSION: str = "1.0"
 DPI_MIN: int = 36
 DPI_MAX: int = 2400
 MIN_WIDTH_DEFAULT: int = 500
