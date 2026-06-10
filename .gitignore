@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Testing/caching
+.hypothesis/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.testfox/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

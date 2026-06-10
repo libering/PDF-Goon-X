@@ -1,0 +1,429 @@
+# PDF-Goon
+VERSION = "1.0.1"
+AUTHOR = "Dnkz"
+DESCRIPTION = "Proper(ish) PDF ripping tool. Extracts raw images or renders the layout if necessary."
+# Relies on the poppler tools pdfimages, pdfinfo, pdftocairo, pingo (windows, optional), oxipng (linux, optional), jpegoptim (linux, optional)
+# Report any errors, unexpected behavior or whatever on the forums https://forums.e-hentai.org/index.php?showtopic=293338"
+
+import subprocess
+import os
+import re
+import shutil
+import argparse
+from pathlib import Path
+import sys
+import struct
+# Try to import send2trash for binning
+try:
+    from send2trash import send2trash
+    HAS_SEND2TRASH = True
+except ImportError:
+    HAS_SEND2TRASH = False
+
+# --- USER CONFIGURATION ---
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def get_tool_path(tool_name):
+    # Resolves the path to the required CLI tools
+    exe_name = f"{tool_name}.exe" if os.name == 'nt' else tool_name
+
+    if hasattr(sys, '_MEIPASS'):
+        if tool_name == "pingo":
+            return os.path.join(sys._MEIPASS, exe_name)
+        else: # Poppler tools
+            return os.path.join(sys._MEIPASS, "poppler", exe_name)
+    
+    local_poppler = os.path.join(SCRIPT_DIR, "poppler", exe_name)
+    if os.path.exists(local_poppler):
+        return local_poppler
+        
+    local_root = os.path.join(SCRIPT_DIR, exe_name)
+    if os.path.exists(local_root):
+        return local_root
+           
+    return tool_name
+
+def check_dependencies(args):
+    # Critical Check: Poppler
+    missing = []
+    for tool in ["pdfimages", "pdfinfo", "pdftocairo"]:
+        resolved_path = get_tool_path(tool)
+        if not shutil.which(resolved_path):
+            missing.append(tool)
+
+    if missing:
+        print(f"[-] Error: Missing Poppler tools: {', '.join(missing)}\nPlease ensure they are bundled, local, or in your system PATH.")
+        sys.exit(1)
+    # Optional Check: Pingo (Windows), Jpegoptim (Linux), Oxipng (Linux)
+    if args.optimize:
+        if os.name != 'nt':
+            missing_opt = [tool for tool in ["jpegoptim", "oxipng"] if not shutil.which(tool)]
+            if missing_opt:
+                print(f"[!] Optimization disabled, Missing tools: {", ".join(missing_opt)}")
+                args.optimize = False
+        else:
+            pingo_path = get_tool_path("pingo")
+            if not shutil.which(pingo_path):
+                print("[!] Optimization disabled: pingo.exe not found in bundle, local dir, or PATH.")
+                args.optimize = False
+
+    # DPI Safety Check
+    if args.dpi_text < 36:
+        print(f"[!] Warning: {args.dpi_text} DPI is very low. Setting to minimum 36 DPI.")
+        args.dpi_text = 36
+    elif args.dpi_text > 2400:
+        print(f"[!] Warning: {args.dpi_text} DPI is extremely high. Capping at 2400 DPI.")
+        args.dpi_text = 2400
+    return args
+
+# Filters out specific (irrelevant) Poppler font warnings while keeping other errors. disable with --debug
+def filtered_stderr(stderr_text):
+    if not stderr_text or not stderr_text.strip():
+        return
+    if DEBUG_MODE:
+        print(stderr_text, file=sys.stderr)
+        return
+    lines = stderr_text.splitlines()
+    for line in lines:
+        if not line: continue
+        # Poppler
+        if "Syntax Warning: Invalid Font Weight" in line or \
+           "Syntax Warning: Invalid Font Width" in line or \
+           "Syntax Warning: Bad annotation destination" in line or \
+           "Expected the optional content group list" in line:
+            continue
+        print(f"\n      [ERROR] {line.strip()}", file=sys.stderr)
+
+# Run a Command on the System
+def run_command(cmd):
+    try:
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            encoding="utf-8", 
+            errors="replace"
+        )
+        filtered_stderr(result.stderr)
+        return result.stdout
+    except Exception: return ""
+
+# Network paths do not support binning
+def is_network_path(path):
+    path = Path(path).resolve()
+    if os.name == 'nt':
+        if str(path).startswith('\\\\'):
+            return True
+        import ctypes
+        drive_letter = path.anchor
+        if drive_letter and ctypes.windll.kernel32.GetDriveTypeW(drive_letter) == 4:
+            return True
+    return False
+
+# Avoid overriding existing Files/Folders and append (1) etc. instead
+def get_unique_path(path, is_dir=False):
+    if not path.exists():
+        return path
+    counter = 1
+    parent = path.parent
+    if is_dir:
+        stem = path.name
+        suffix = ""
+    else:
+        stem = path.stem
+        suffix = path.suffix    
+    while True:
+        new_name = f"{stem} ({counter}){suffix}"
+        new_path = parent / new_name
+        if not new_path.exists():
+            return new_path
+        counter += 1
+
+# Collect information about the contained Pages/Images/Masks
+def get_image_data(pdf_path, page_num):
+    res = run_command([get_tool_path("pdfimages"), str(pdf_path), "-list", "-f", str(page_num), "-l", str(page_num)])
+    lines = res.strip().split('\n')
+    images = []
+    mask_indices = []
+
+    img_idx = 0
+    for line in lines:
+        parts = line.split()
+        if len(parts) >= 13 and parts[0].isdigit():
+            # Check for 'smask' or 'stencil' types which are usually junk masks
+            is_mask = parts[2].lower() == 'smask' #or parts[5].lower() == 'stencil'
+            if is_mask:
+                # Track as a 3-digit string to match pdfimages output filenames
+                mask_indices.append(str(img_idx).zfill(3))
+            else:
+                try:
+                    images.append({
+                        'width': int(parts[3]), 
+                        'height': int(parts[4]), 
+                        'color': parts[5].lower()
+                    })
+                except (ValueError, IndexError): continue
+            img_idx += 1
+    return images, mask_indices
+
+# Retrieves physical point dimensions of the page for dpi calculation.
+def get_page_info(pdf_path, page_num):
+    res = run_command([get_tool_path("pdfinfo"), "-f", str(page_num), "-l", str(page_num), str(pdf_path)])
+    
+    def to_c_float(value):
+        """
+        Simulates a 32-bit C float. 
+        Packs the number into 4 bytes and unpacks it back to a Python float.
+        """
+        # 'f' is the format char for a 32-bit float (single precision)
+        return struct.unpack('f', struct.pack('f', float(value)))[0]
+    
+    # Regex captures width (group 1) and height (group 2)
+    # Handles decimals (1058.00) and ignores 'pts' or 'rotated' text
+    match = re.search(r"Page\s+(?:\d+\s+)?size:\s+([\d.]+)\s+x\s+([\d.]+)", res)
+    if match:
+        return float(to_c_float(match.group(1))), float(to_c_float(match.group(2)))
+    return 0.0, 0.0
+
+# The logic core for the single pdf
+def process_single_pdf(pdf_path, workspace, root_path, central_delete_path, 
+                       verbose=False, replace=False, optimize=True, 
+                       dpi_text=400, min_w=500, force_render=False,
+                       current_count=0, total_count=0):
+    base_output_path = pdf_path.parent / pdf_path.stem
+    output_dir = get_unique_path(base_output_path, is_dir=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    info_res = run_command([get_tool_path("pdfinfo"), str(pdf_path)])
+    pages_match = re.search(r"Pages:\s+(\d+)", info_res)
+    if not pages_match: return
+    total_pages = int(pages_match.group(1))
+
+    rel_path = pdf_path.relative_to(root_path)
+    print(f"[{current_count}/{total_count}] {rel_path} ({total_pages} pages)")
+
+    for page in range(1, total_pages + 1):
+        images_on_page, mask_indices = get_image_data(pdf_path, page) # images_on_page can be None !
+        img_count = len(images_on_page)
+        local_prefix = workspace / f"page_{page}_tmp"
+        
+        is_tricky_color = any(img['color'] in ['devn', 'cmyk', 'sep'] for img in images_on_page)
+        was_rendered = False
+
+        page_w_pts, _ = get_page_info(pdf_path, page)
+
+        # --- PROGRESS BAR LOGIC ---
+        if not verbose:
+            percent = (page / total_pages) * 100
+            bar_length = 20
+            filled_length = int(bar_length * page // total_pages)
+            bar = '█' * filled_length + '-' * (bar_length - filled_length)
+            # \r moves cursor to start of line, end='' prevents newline
+            print(f"\r    Progress: |{bar}| {percent:.1f}% (Page {page}/{total_pages})", end='', flush=True)        
+        
+        # avoid an icon being outputted on majority text pages and render instead
+        if img_count == 1:
+            main_img = images_on_page[0]
+            if DEBUG_MODE: print(f"    [DEBUG] main_img[width] {main_img['width']}")
+            icon_only = True if main_img['width'] <= min_w else False
+        
+        # Some 'color types' reported by pdfimages should always be rendered because they usually aren't complete pages
+        # If the page contains a single image, then extract that image, else it will require rendering the page
+        if img_count == 1 and not is_tricky_color and not icon_only and not force_render:
+            if verbose: print(f"    - Page {page:02}: Extracting ...")
+            res = subprocess.run([get_tool_path("pdfimages"), "-png", "-j", "-f", str(page), "-l", str(page), 
+                                  str(pdf_path), str(local_prefix)], capture_output=True, text=True)
+            filtered_stderr(res.stderr)
+
+        # The page is made up of multiple elements so it requires rendering to a bitmap
+        # If the largest image is under the threshhold then it is probably icon/partial, it will be rendered at the default dpi
+        else:
+            images_on_page.sort(key=lambda x: x['width'], reverse=True)
+            main_img = images_on_page[0] if images_on_page else None
+            reason = None
+            #if DEBUG_MODE: print(f"    [DEBUG] main_img[width] = {main_img['width'] if main_img else 'None'}")
+            # Determine what the best dpi for rendering would be based on the contained images
+            if main_img and main_img['width'] >= min_w and page_w_pts > 0:
+                if DEBUG_MODE: print(f"    [DEBUG] Page {page} has {len(images_on_page)} images. Largest: {main_img['width']}px. Min_w is {min_w}px")
+                dpi = (main_img['width'] * 72) / page_w_pts
+            else:
+                # Fallback for text-only pages or if the embedded images are too small -> no background (icons etc.)
+                if verbose:
+                    reason = f"Small image ({main_img['width']}px), likely Icon/Symbol, " if main_img else "No images, "
+                    reason += f"using fallback DPI -> {dpi_text}. "
+                dpi = dpi_text        
+
+            target_prefix = f"{local_prefix}-{page}"
+            
+            # retrieve page dimensions using pdfinfo
+            page_w_pts, page_h_pts = get_page_info(pdf_path, page)
+
+            if DEBUG_MODE: print(f"    [DEBUG] page_w_pts: {page_w_pts}, page_h_pts {page_h_pts}")
+            
+            # Try to replicate GEGL's exact surface calculation
+            target_w = int((page_w_pts * dpi) / 72.0)
+            target_h = int((page_h_pts * dpi) / 72.0)
+            if DEBUG_MODE: print(f"    [DEBUG] Resolution: {target_w}x{target_h}")
+
+            if verbose: print(f"    - Page {page:02}: {reason if reason else ""}Rendering @ {target_w}x{target_h} px ...")
+            if DEBUG_MODE: print(f"    [DEBUG] DPI @ {dpi}")
+
+            # Try to replicate the GEGL rendering logic
+            render_cmd = [
+                f"{get_tool_path('pdftocairo')}",
+                "-png",
+                "-singlefile",
+                "-cropbox",
+                "-r", str(dpi),
+                "-x", "0",
+                "-y", "0",
+                "-W", str(target_w),
+                "-H", str(target_h),
+                "-f", str(page),
+                "-l", str(page),
+                str(pdf_path),
+                target_prefix
+            ]
+            #if DEBUG_MODE: print(f"    [DEBUG] CAIRO CMD: {' '.join(render_cmd)}")
+
+            res = subprocess.run(
+                render_cmd,
+                capture_output=True, 
+                text=True,
+                encoding="utf-8"
+            )
+            filtered_stderr(res.stderr)
+            was_rendered = True
+
+
+        # Cleanup, also remove mask files
+        generated_files = list(workspace.glob(f"{local_prefix.name}*"))
+
+        for local_file in sorted(generated_files):
+            match = re.search(r'-(\d+)\.(?:png|jpg|jpeg)', local_file.name)
+            if not match: 
+                continue
+
+            file_idx_str = match.group(1)
+            if was_rendered:
+                # If rendered we only have one file
+                is_mask = False 
+            else:
+                # For pdfimages extraction, check against the mask list
+                is_mask = file_idx_str.zfill(3) in mask_indices
+            if is_mask:
+                if verbose: print(f"      - Deleting mask: {local_file.name}")
+                local_file.unlink()
+                continue
+
+            # MOVE and RENAME valid images
+            if local_file.suffix.lower() in ['.png', '.jpg', '.jpeg']:
+                # lossless file size optimization
+                if optimize:
+                    if os.name == 'nt':
+                        # Windows: Use pingo for both PNG and JPEG
+                        subprocess.run([get_tool_path("pingo"), "-lossless", "-s4", str(local_file)], 
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                    else:
+                        # Linux/macOS: Split by file extension
+                        file_ext = str(local_file).lower()
+                        
+                        if file_ext.endswith(".png"):
+                            # oxipng: -o 4 (high optimization), --strip safe (removes useless metadata)
+                            subprocess.run(["oxipng", "-o", "4", "--strip", "safe", str(local_file)],
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                        
+                        elif file_ext.endswith((".jpg", ".jpeg")):
+                            subprocess.run(["jpegoptim", "--strip-all", str(local_file)],
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                            
+                render_tag = "_r" if was_rendered else ""
+                dest_name = f"{str(page).zfill(3)}{render_tag}{local_file.suffix.lower()}"
+                dest_path = output_dir / dest_name
+                
+                if dest_path.exists():
+                    sub_idx = re.search(r'-(\d+)', local_file.name)
+                    if sub_idx:
+                        dest_path = output_dir / f"{str(page).zfill(3)}_{sub_idx.group(1)}{'_r' if was_rendered else ''}{local_file.suffix.lower()}"
+
+                shutil.move(str(local_file), str(dest_path))
+    print() # new line (because of progress bar)
+
+    if replace:
+        on_network = is_network_path(pdf_path)
+        if HAS_SEND2TRASH and not on_network:
+            send2trash(str(pdf_path))
+        else:
+            target_delete_dir = central_delete_path if central_delete_path else (pdf_path.parent / "!delete")
+            target_delete_dir.mkdir(exist_ok=True)
+            dest_pdf = get_unique_path(target_delete_dir / pdf_path.name, is_dir=False)
+            shutil.move(str(pdf_path), str(dest_pdf))
+
+def main():
+    # --- STARTUP MESSAGE ---
+    print("=" * 60)
+    print(f"PDF-Goon v{VERSION}")
+    print(f"{DESCRIPTION}")
+    print("=" * 60)
+
+    # Parser
+    parser = argparse.ArgumentParser(description=DESCRIPTION, epilog=f"Version {VERSION} | Credits: Uses Poppler-utils and Pingo.exe. | Author: Dnkz")
+    parser.add_argument("path", nargs="?", default=".", 
+                        help="Target directory to process (default: current directory)")
+    parser.add_argument("-v", "--verbose", action="store_true", 
+                        help="Show per-page processing details (Extraction vs Rendering)")
+    parser.add_argument("-r", "--replace", action="store_true", 
+                        help="Move processed PDF to Recycle Bin (local) or a central '!delete' folder (network/recursive)")
+    parser.add_argument("-recursive", "--include-subdirectories", action="store_true", 
+                        help="Recursively search all subdirectories for PDF files")
+    parser.add_argument("-dpi-text", type=int, metavar="DPI",default=400, 
+                        help="DPI for pages without images or with icons only (default: 400)")
+    parser.add_argument("-min-w", type=int, default=500, metavar="PX",
+                        help="Ignore embedded images narrower than this and use -dpi-text instead (default: 500)")
+    parser.add_argument("--no-optimization", action="store_false", dest="optimize", 
+                        help="Disable lossless image optimization")
+    parser.add_argument("--debug", action="store_true", 
+                        help="Show all Poppler syntax warnings and errors, and additional info. Includes -v")
+    parser.add_argument("--force-render", action="store_true",
+                        help=argparse.SUPPRESS)
+    parser.set_defaults(optimize=True)
+    args = parser.parse_args()
+    global DEBUG_MODE
+    DEBUG_MODE = args.debug
+    if args.debug:
+        args.verbose = True
+    args = check_dependencies(args)
+    
+    print(f"Configuration => Path: '{args.path}' | Recursive (include subdirectories): {args.include_subdirectories} | Replace: {args.replace} | DPI for Textpages: {args.dpi_text} | Min-Width: {args.min_w}px | Lossless Optimization: {args.optimize}")
+    print("=" * 60)
+
+    root_path = Path(args.path).resolve()
+    workspace = Path(os.environ.get('TEMP', '/tmp')) / "poppler_ws"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    central_delete = (root_path / "!delete") if args.include_subdirectories else None
+    glob_pattern = "**/*.pdf" if args.include_subdirectories else "*.pdf"
+    pdf_files = [f for f in root_path.glob(glob_pattern) if "!delete" not in str(f)]
+    
+    if not pdf_files:
+        print(f"No PDFs found.")
+        return
+
+    total_files = len(pdf_files)
+    print(f"Found {total_files} PDF(s). Starting ...\n")
+    for index, pdf in enumerate(pdf_files, 1):
+        try:
+            process_single_pdf(pdf, workspace, root_path, central_delete, 
+                               args.verbose, args.replace, args.optimize,
+                               dpi_text=args.dpi_text, min_w=args.min_w, force_render=args.force_render,
+                               current_count=index, total_count=total_files)
+        except Exception as e:
+            print(f"Error: {pdf.name} - {e}")
+            
+    try: shutil.rmtree(workspace)
+    except: pass
+    print("\nAll Done.")
+
+if __name__ == "__main__":
+    main()
