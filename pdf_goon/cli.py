@@ -22,40 +22,63 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog=f"Version {VERSION} | Credits: Uses Poppler-utils and Pingo.exe. | Author: Dnkz",
     )
     parser.add_argument(
-        "path", nargs="?", default=".",
+        "path",
+        nargs="?",
+        default=".",
         help="Target directory to process (default: current directory)",
     )
     parser.add_argument(
-        "-v", "--verbose", action="store_true",
+        "-v",
+        "--verbose",
+        action="store_true",
         help="Show per-page processing details (Extraction vs Rendering)",
     )
     parser.add_argument(
-        "-r", "--replace", action="store_true",
+        "-r",
+        "--replace",
+        action="store_true",
         help="Move processed PDF to Recycle Bin (local) or a central '!delete' folder (network/recursive)",
     )
     parser.add_argument(
-        "-recursive", "--include-subdirectories", action="store_true",
+        "-recursive",
+        "--include-subdirectories",
+        action="store_true",
         help="Recursively search all subdirectories for PDF files",
     )
     parser.add_argument(
-        "-dpi-text", type=int, metavar="DPI", default=400,
+        "-dpi-text",
+        type=int,
+        metavar="DPI",
+        default=400,
         help="DPI for pages without images or with icons only (default: 400)",
     )
     parser.add_argument(
-        "-min-w", type=int, default=500, metavar="PX",
+        "-min-w",
+        type=int,
+        default=500,
+        metavar="PX",
         help="Ignore embedded images narrower than this and use -dpi-text instead (default: 500)",
     )
     parser.add_argument(
-        "--no-optimization", action="store_false", dest="optimize",
+        "--no-optimization",
+        action="store_false",
+        dest="optimize",
         help="Disable lossless image optimization",
     )
     parser.add_argument(
-        "--debug", action="store_true",
+        "--debug",
+        action="store_true",
         help="Show all Poppler syntax warnings and errors, and additional info. Includes -v",
     )
     parser.add_argument(
-        "--force-render", action="store_true",
+        "--force-render",
+        action="store_true",
         help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--keep-blank",
+        action="store_true",
+        help="Render blank pages at dpi_text instead of skipping them",
     )
     parser.set_defaults(optimize=True)
     return parser
@@ -74,7 +97,11 @@ def main() -> None:
     args = parser.parse_args()
 
     # Configure logging: diagnostic output goes to stderr
-    log_level = logging.DEBUG if args.debug else (logging.INFO if args.verbose else logging.WARNING)
+    log_level = (
+        logging.DEBUG
+        if args.debug
+        else (logging.INFO if args.verbose else logging.WARNING)
+    )
     logging.basicConfig(
         level=log_level,
         format="%(message)s",
@@ -104,6 +131,7 @@ def main() -> None:
             recursive=args.include_subdirectories,
             force_render=args.force_render,
             debug=args.debug,
+            keep_blank=args.keep_blank,
         )
     except PdfGoonError as exc:
         print(f"Error: {exc}", file=sys.stderr)

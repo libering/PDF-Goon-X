@@ -15,7 +15,6 @@ DPI_MAX: int = 2400
 MIN_WIDTH_DEFAULT: int = 500
 PROGRESS_BAR_LENGTH: int = 20
 TRICKY_COLORS: frozenset[str] = frozenset({"devn", "cmyk", "sep"})
-POPPLER_TOOLS: tuple[str, ...] = ("pdfimages", "pdfinfo", "pdftocairo")
 
 
 # --- Enums ---
@@ -26,6 +25,7 @@ class ProcessingMode(Enum):
 
     EXTRACT = "extract"
     RENDER = "render"
+    BLANK = "blank"
 
 
 # --- Dataclasses ---
@@ -44,6 +44,7 @@ class Config:
     recursive: bool = False
     force_render: bool = False
     debug: bool = False
+    keep_blank: bool = False
 
 
 @dataclass(frozen=True)
@@ -100,16 +101,6 @@ class PdfGoonError(Exception):
     """Base exception for unexpected pdf_goon errors."""
 
 
-class ToolNotFoundError(PdfGoonError):
-    """Required Poppler tool is missing from the system."""
-
-    def __init__(self, missing_tools: list[str]) -> None:
-        self.missing_tools = missing_tools
-        super().__init__(
-            f"Missing required tools: {', '.join(missing_tools)}"
-        )
-
-
 class SubprocessError(PdfGoonError):
     """A subprocess exited with non-zero status unexpectedly."""
 
@@ -117,9 +108,7 @@ class SubprocessError(PdfGoonError):
         self.tool = tool
         self.exit_code = exit_code
         self.stderr = stderr
-        super().__init__(
-            f"{tool} exited with code {exit_code}: {stderr}"
-        )
+        super().__init__(f"{tool} exited with code {exit_code}: {stderr}")
 
 
 # --- Factory ---
@@ -166,4 +155,5 @@ def make_config(**kwargs: object) -> Config:
         recursive=bool(kwargs.get("recursive", False)),
         force_render=bool(kwargs.get("force_render", False)),
         debug=debug,
+        keep_blank=bool(kwargs.get("keep_blank", False)),
     )

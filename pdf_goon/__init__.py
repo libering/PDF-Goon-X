@@ -22,6 +22,7 @@ def process(
     recursive: bool = False,
     force_render: bool = False,
     debug: bool = False,
+    keep_blank: bool = False,
     progress_callback: Callable[[int, int, Path], None] | None = None,
 ) -> list[ProcessResult]:
     """Process PDF files at the given path. Primary public API."""
@@ -35,5 +36,6 @@ def process(
         recursive=recursive,
         force_render=force_render,
         debug=debug,
+        keep_blank=keep_blank,
     )
     return process_batch(config, progress_callback=progress_callback)

@@ -48,7 +48,9 @@ def is_network_path(path: Path) -> bool:
     import ctypes
 
     drive_letter = resolved.anchor
-    return bool(drive_letter and ctypes.windll.kernel32.GetDriveTypeW(drive_letter) == 4)
+    return bool(
+        drive_letter and ctypes.windll.kernel32.GetDriveTypeW(drive_letter) == 4
+    )
 
 
 def _trash_windows(pdf_path: Path) -> bool:
@@ -116,9 +118,7 @@ def _trash_freedesktop(pdf_path: Path) -> bool:
         # Write .trashinfo file
         deletion_date = time.strftime("%Y-%m-%dT%H:%M:%S")
         info_content = (
-            "[Trash Info]\n"
-            f"Path={pdf_path.resolve()}\n"
-            f"DeletionDate={deletion_date}\n"
+            f"[Trash Info]\nPath={pdf_path.resolve()}\nDeletionDate={deletion_date}\n"
         )
         info_file = info_dir / f"{trash_name}.trashinfo"
         info_file.write_text(info_content, encoding="utf-8")

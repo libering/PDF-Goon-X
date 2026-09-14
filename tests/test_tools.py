@@ -1,10 +1,16 @@
 # tests.test_tools — Tests for pdf_goon.tools
 # Feature: pdf-goon-refactor, Property 10: Subprocess failure exceptions contain diagnostic info
 
+import subprocess
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from pdf_goon.models import SubprocessError
+from pdf_goon.tools import get_tool_path, run_command
 
 
 @given(
@@ -42,14 +48,6 @@ def test_subprocess_error_contains_diagnostic_info(
 # --- Unit Tests for tools.py ---
 # Task 3.3: Test get_tool_path, run_command, check_poppler_available
 
-import subprocess
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
-
-from pdf_goon.tools import check_poppler_available, get_tool_path, run_command
-
 
 class TestGetToolPath:
     """Tests for get_tool_path resolution order: MEIPASS → local (allowlist) → PATH → bare name."""
@@ -71,7 +69,9 @@ class TestGetToolPath:
         # Should NOT return a local path — should fall through to bare name
         assert result == "evil_binary"
 
-    def test_allowlisted_tool_resolves_from_local_directory(self, tmp_path: Path) -> None:
+    def test_allowlisted_tool_resolves_from_local_directory(
+        self, tmp_path: Path
+    ) -> None:
         """A tool name IN the allowlist CAN be resolved from the local directory."""
         with (
             patch("pdf_goon.tools.sys") as mock_sys,
@@ -79,11 +79,11 @@ class TestGetToolPath:
         ):
             del mock_sys._MEIPASS
             with patch("pdf_goon.tools.Path.exists", return_value=True):
-                result = get_tool_path("pdfimages")
+                result = get_tool_path("pingo")
 
         # Should resolve from local (Path.exists returns True)
-        assert "pdfimages" in result
-        assert result != "pdfimages"  # Not the bare name — it's a full path
+        assert "pingo" in result
+        assert result != "pingo"  # Not the bare name — it's a full path
 
     def test_resolves_from_meipass_when_bundled(self, tmp_path: Path) -> None:
         """get_tool_path returns bundled path when sys._MEIPASS is set and tool exists."""
@@ -154,46 +154,13 @@ class TestRunCommand:
         assert exc_info.value.exit_code == 1
         assert "file not found" in exc_info.value.stderr
 
-    def test_filters_syntax_warning_from_stderr(self) -> None:
-        """run_command removes 'Syntax Warning:' lines from stderr in exceptions."""
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stdout = ""
-        mock_result.stderr = (
-            "Syntax Warning: some irrelevant poppler noise\n"
-            "Actual error: something broke\n"
-            "Syntax Warning: another warning\n"
-        )
-
-        with patch("pdf_goon.tools.subprocess.run", return_value=mock_result):
-            with pytest.raises(SubprocessError) as exc_info:
-                run_command(["pdftocairo", "bad.pdf"])
-
-        assert "Syntax Warning:" not in exc_info.value.stderr
-        assert "Actual error: something broke" in exc_info.value.stderr
-
-    def test_filters_syntax_error_from_stderr(self) -> None:
-        """run_command removes 'Syntax Error:' lines from stderr in exceptions."""
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stdout = ""
-        mock_result.stderr = (
-            "Syntax Error: invalid object\n"
-            "Fatal: cannot continue\n"
-        )
-
-        with patch("pdf_goon.tools.subprocess.run", return_value=mock_result):
-            with pytest.raises(SubprocessError) as exc_info:
-                run_command(["pdfimages", "corrupt.pdf"])
-
-        assert "Syntax Error:" not in exc_info.value.stderr
-        assert "Fatal: cannot continue" in exc_info.value.stderr
-
     def test_raises_subprocess_error_on_timeout(self) -> None:
         """run_command raises SubprocessError with timeout info when process hangs."""
         with patch(
             "pdf_goon.tools.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd=["pdfinfo", "huge.pdf"], timeout=300),
+            side_effect=subprocess.TimeoutExpired(
+                cmd=["pdfinfo", "huge.pdf"], timeout=300
+            ),
         ):
             with pytest.raises(SubprocessError) as exc_info:
                 run_command(["pdfinfo", "huge.pdf"])
@@ -201,32 +168,3 @@ class TestRunCommand:
         assert exc_info.value.tool == "pdfinfo"
         assert exc_info.value.exit_code == -1
         assert "timed out" in exc_info.value.stderr.lower()
-
-
-class TestCheckPopplerAvailable:
-    """Tests for check_poppler_available tool detection."""
-
-    def test_returns_empty_list_when_all_tools_found(self) -> None:
-        """check_poppler_available returns [] when all Poppler tools are on PATH."""
-        with patch(
-            "pdf_goon.tools.shutil.which",
-            side_effect=lambda t: f"/usr/bin/{t}",
-        ):
-            missing = check_poppler_available()
-
-        assert missing == []
-
-    def test_returns_missing_tools(self) -> None:
-        """check_poppler_available lists tools not found on PATH."""
-
-        def mock_which(tool: str) -> str | None:
-            if tool == "pdfimages":
-                return "/usr/bin/pdfimages"
-            return None
-
-        with patch("pdf_goon.tools.shutil.which", side_effect=mock_which):
-            missing = check_poppler_available()
-
-        assert "pdfinfo" in missing
-        assert "pdftocairo" in missing
-        assert "pdfimages" not in missing

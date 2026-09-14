@@ -13,7 +13,6 @@ from pdf_goon.models import (
     Config,
     ProcessingMode,
     SubprocessError,
-    ToolNotFoundError,
     make_config,
 )
 
@@ -116,15 +115,6 @@ def test_config_is_frozen():
 
 
 # --- Unit Tests: exception classes ---
-
-
-def test_tool_not_found_error_stores_missing_tools():
-    """ToolNotFoundError stores the missing_tools list and includes names in message."""
-    missing = ["pdfimages", "pdftocairo"]
-    err = ToolNotFoundError(missing)
-    assert err.missing_tools == missing
-    assert "pdfimages" in str(err)
-    assert "pdftocairo" in str(err)
 
 
 def test_subprocess_error_stores_attributes():

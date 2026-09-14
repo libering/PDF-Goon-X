@@ -1,14 +1,19 @@
 # tests.test_files — Tests for pdf_goon.files
 
-import os
 import shutil
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from pdf_goon.files import get_unique_path
+from pdf_goon.files import (
+    get_unique_path,
+    is_network_path,
+    trash_or_move,
+    workspace_context,
+)
 
 
 # Feature: pdf-goon-refactor, Property 8: Unique path generation never collides with existing paths
@@ -69,8 +74,6 @@ def test_unique_path_never_collides_with_existing(
 
 # Feature: pdf-goon-refactor, Property 6: Workspace cleanup is guaranteed regardless of outcome
 
-from pdf_goon.files import workspace_context
-
 
 def test_workspace_cleanup_on_success(tmp_path: Path) -> None:
     """Workspace directory is removed after successful execution.
@@ -121,10 +124,6 @@ def test_workspace_cleanup_on_unexpected_exception(tmp_path: Path) -> None:
 
 
 # --- Unit Tests for files.py (Task 8.4) ---
-
-from unittest.mock import patch
-
-from pdf_goon.files import is_network_path, trash_or_move
 
 
 # --- get_unique_path unit tests ---
@@ -192,7 +191,9 @@ def test_is_network_path_unc_on_windows() -> None:
     with patch("pdf_goon.files.os.name", "nt"):
         # Patch Path.resolve to return a UNC-style path
         unc_path = Path("\\\\server\\share\\file.pdf")
-        with patch.object(Path, "resolve", return_value=Path("\\\\server\\share\\file.pdf")):
+        with patch.object(
+            Path, "resolve", return_value=Path("\\\\server\\share\\file.pdf")
+        ):
             result = is_network_path(unc_path)
     assert result is True
 
@@ -218,8 +219,10 @@ def test_trash_or_move_fallback_to_delete_folder(tmp_path: Path) -> None:
     pdf_file = tmp_path / "test.pdf"
     pdf_file.write_text("dummy content")
 
-    with patch("pdf_goon.files._trash_windows", return_value=False), \
-         patch("pdf_goon.files._trash_freedesktop", return_value=False):
+    with (
+        patch("pdf_goon.files._trash_windows", return_value=False),
+        patch("pdf_goon.files._trash_freedesktop", return_value=False),
+    ):
         trash_or_move(pdf_file)
 
     # Original file should be gone
@@ -239,8 +242,10 @@ def test_trash_or_move_explicit_delete_dir(tmp_path: Path) -> None:
     pdf_file.write_text("dummy content")
     custom_dir = tmp_path / "my_trash"
 
-    with patch("pdf_goon.files._trash_windows", return_value=False), \
-         patch("pdf_goon.files._trash_freedesktop", return_value=False):
+    with (
+        patch("pdf_goon.files._trash_windows", return_value=False),
+        patch("pdf_goon.files._trash_freedesktop", return_value=False),
+    ):
         trash_or_move(pdf_file, delete_dir=custom_dir)
 
     assert not pdf_file.exists()

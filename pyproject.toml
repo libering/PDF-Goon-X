@@ -9,8 +9,14 @@ description = "Extract and render images from PDF files using Poppler tools"
 requires-python = ">=3.11"
 license = "MIT"
 
+dependencies = [
+    "pypdf>=5.0.0",
+    "pypdfium2>=4.0",
+    "Pillow>=10.0.0",
+]
 [project.scripts]
 pdf-goon = "pdf_goon.cli:main"
+
 
 [project.optional-dependencies]
 dev = [
@@ -19,3 +25,8 @@ dev = [
     "mypy>=1.0",
     "ruff>=0.1",
 ]
+
+[tool.mypy]
+[[tool.mypy.overrides]]
+module = "pypdfium2"
+ignore_missing_imports = true

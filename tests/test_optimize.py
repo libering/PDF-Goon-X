@@ -62,6 +62,7 @@ class TestOptimizerToolSelection:
             with (
                 patch("pdf_goon.optimize.os.name", platform),
                 patch("pdf_goon.optimize.get_tool_path", fake_get_tool_path),
+                patch("pdf_goon.optimize.check_optimizer_available", return_value=True),
             ):
                 optimize_image(tmp_path, run=recording_run)
 
@@ -71,9 +72,7 @@ class TestOptimizerToolSelection:
 
             # Verify the correct tool is the first element of the command
             if platform == "nt":
-                assert cmd[0] == "pingo", (
-                    f"Expected pingo on Windows, got: {cmd[0]}"
-                )
+                assert cmd[0] == "pingo", f"Expected pingo on Windows, got: {cmd[0]}"
             elif extension == ".png":
                 assert cmd[0] == "oxipng", (
                     f"Expected oxipng for PNG on posix, got: {cmd[0]}"
@@ -100,9 +99,7 @@ class TestOptimizerFailurePreservesFile:
 
     @given(extension=st.sampled_from([".png", ".jpg", ".jpeg"]))
     @settings(max_examples=20)
-    def test_failure_preserves_original_and_returns_zero(
-        self, extension: str
-    ) -> None:
+    def test_failure_preserves_original_and_returns_zero(self, extension: str) -> None:
         """Assert original file is unmodified and return value is 0 on failure."""
         original_content = b"original image content for preservation test"
 
@@ -112,14 +109,15 @@ class TestOptimizerFailurePreservesFile:
             )
 
         # Create a real temp file with known content
-        with tempfile.NamedTemporaryFile(
-            suffix=extension, delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as tmp:
             tmp.write(original_content)
             tmp_path = Path(tmp.name)
 
         try:
-            result = optimize_image(tmp_path, run=failing_run)
+            with patch(
+                "pdf_goon.optimize.check_optimizer_available", return_value=True
+            ):
+                result = optimize_image(tmp_path, run=failing_run)
 
             # Assert return value is 0 (no bytes saved)
             assert result == 0, f"Expected 0 bytes saved on failure, got: {result}"
@@ -150,7 +148,10 @@ class TestOptimizeImageBytesSaved:
             image_file.write_bytes(b"A" * 600)
             return ""
 
-        with patch("pdf_goon.optimize.get_tool_path", return_value="oxipng"):
+        with (
+            patch("pdf_goon.optimize.get_tool_path", return_value="oxipng"),
+            patch("pdf_goon.optimize.check_optimizer_available", return_value=True),
+        ):
             result = optimize_image(image_file, run=shrinking_run)
 
         assert result == 400  # 1000 - 600
@@ -199,6 +200,7 @@ class TestOptimizeImageToolSelection:
         with (
             patch("pdf_goon.optimize.os.name", "nt"),
             patch("pdf_goon.optimize.get_tool_path", return_value="pingo"),
+            patch("pdf_goon.optimize.check_optimizer_available", return_value=True),
         ):
             optimize_image(image_file, run=recording_run)
 
@@ -220,6 +222,7 @@ class TestOptimizeImageToolSelection:
         with (
             patch("pdf_goon.optimize.os.name", "posix"),
             patch("pdf_goon.optimize.get_tool_path", return_value="oxipng"),
+            patch("pdf_goon.optimize.check_optimizer_available", return_value=True),
         ):
             optimize_image(image_file, run=recording_run)
 
@@ -240,6 +243,7 @@ class TestOptimizeImageToolSelection:
         with (
             patch("pdf_goon.optimize.os.name", "posix"),
             patch("pdf_goon.optimize.get_tool_path", return_value="jpegoptim"),
+            patch("pdf_goon.optimize.check_optimizer_available", return_value=True),
         ):
             optimize_image(image_file, run=recording_run)
 

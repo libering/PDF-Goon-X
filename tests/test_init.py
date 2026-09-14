@@ -38,7 +38,12 @@ class TestImportNoSideEffects:
 
     def test_all_exports_match_expected(self) -> None:
         """__all__ contains exactly the expected public symbols."""
-        assert set(pdf_goon.__all__) == {"Config", "ProcessResult", "VERSION", "process"}
+        assert set(pdf_goon.__all__) == {
+            "Config",
+            "ProcessResult",
+            "VERSION",
+            "process",
+        }
 
 
 class TestProcessDelegatesToCore:
@@ -80,12 +85,11 @@ class TestProcessDelegatesToCore:
             recursive=True,
             force_render=False,
             debug=False,
+            keep_blank=False,
         )
 
         # process_batch was called with the constructed config
-        mock_process_batch.assert_called_once_with(
-            fake_config, progress_callback=None
-        )
+        mock_process_batch.assert_called_once_with(fake_config, progress_callback=None)
 
         assert result == []
 
@@ -144,6 +148,4 @@ class TestProcessAcceptsProgressCallback:
 
         pdf_goon.process(path=str(tmp_path))
 
-        mock_process_batch.assert_called_once_with(
-            fake_config, progress_callback=None
-        )
+        mock_process_batch.assert_called_once_with(fake_config, progress_callback=None)

@@ -13,8 +13,6 @@ Requirements: 12.1, 12.2, 12.3
 
 from __future__ import annotations
 
-import re
-import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -35,17 +33,21 @@ class TestCLIArgumentCompatibility:
         """Parser accepts every flag from v1.0.1 without error."""
         parser = _build_parser()
         # All flags combined
-        args = parser.parse_args([
-            "/some/path",
-            "-v",
-            "-r",
-            "-recursive",
-            "-dpi-text", "600",
-            "-min-w", "300",
-            "--no-optimization",
-            "--debug",
-            "--force-render",
-        ])
+        args = parser.parse_args(
+            [
+                "/some/path",
+                "-v",
+                "-r",
+                "-recursive",
+                "-dpi-text",
+                "600",
+                "-min-w",
+                "300",
+                "--no-optimization",
+                "--debug",
+                "--force-render",
+            ]
+        )
         assert args.path == "/some/path"
         assert args.verbose is True
         assert args.replace is True
@@ -325,7 +327,20 @@ class TestConfigurationSummaryFormat:
         assert "Min-Width: 500px" in captured.out
         assert "Lossless Optimization: True" in captured.out
 
-    @patch("sys.argv", ["pdf-goon", "/custom/path", "-r", "-recursive", "-dpi-text", "300", "-min-w", "800", "--no-optimization"])
+    @patch(
+        "sys.argv",
+        [
+            "pdf-goon",
+            "/custom/path",
+            "-r",
+            "-recursive",
+            "-dpi-text",
+            "300",
+            "-min-w",
+            "800",
+            "--no-optimization",
+        ],
+    )
     @patch("pdf_goon.cli.pdf_goon.process", return_value=[])
     def test_config_summary_reflects_custom_args(self, mock_process, capsys):
         """Configuration summary reflects non-default argument values."""

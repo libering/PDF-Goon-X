@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+from uuid import uuid4
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from pdf_goon.core import _process_page, process_batch, process_single_pdf
+from pdf_goon.core import (
+    _finalize_page_files,
+    _process_page,
+    process_batch,
+    process_single_pdf,
+)
 from pdf_goon.models import (
     Config,
     PageDecision,
@@ -49,7 +55,9 @@ def _create_pdf_files(tmp_path: Path, count: int) -> list[Path]:
 
 
 # Common mock targets in pdf_goon.core
-_PATCH_CHECK_POPPLER = "pdf_goon.core.check_poppler_available"
+_PATCH_CHECK_POPPLER = (
+    "pdf_goon.core.get_page_count"  # Dummy target since poppler check is removed
+)
 _PATCH_GET_PAGE_COUNT = "pdf_goon.core.get_page_count"
 _PATCH_GET_IMAGE_DATA = "pdf_goon.core.get_image_data"
 _PATCH_GET_PAGE_INFO = "pdf_goon.core.get_page_info"
@@ -116,7 +124,7 @@ def test_batch_resilient_to_individual_failures(
         with (
             patch(_PATCH_CHECK_POPPLER, return_value=[]),
             patch(_PATCH_GET_PAGE_COUNT, side_effect=mock_page_count),
-            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [])),
+            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [], False)),
             patch(_PATCH_GET_PAGE_INFO, return_value=PageInfo(612.0, 792.0)),
             patch(
                 _PATCH_DECIDE_MODE,
@@ -259,7 +267,7 @@ def test_progress_callback_sequential_indices(
         with (
             patch(_PATCH_CHECK_POPPLER, return_value=[]),
             patch(_PATCH_GET_PAGE_COUNT, return_value=1),
-            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [])),
+            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [], False)),
             patch(_PATCH_GET_PAGE_INFO, return_value=PageInfo(612.0, 792.0)),
             patch(
                 _PATCH_DECIDE_MODE,
@@ -299,9 +307,7 @@ class TestRenderPrefixCollision:
     **Validates: Requirements B2 (AC1)**
     """
 
-    def test_render_prefix_not_caught_by_extraction_glob(
-        self, tmp_path: Path
-    ) -> None:
+    def test_render_prefix_not_caught_by_extraction_glob(self, tmp_path: Path) -> None:
         """Render file prefix must NOT start with extraction prefix.
 
         Bug: extraction uses 'page_{page}_tmp' and rendering uses
@@ -315,7 +321,6 @@ class TestRenderPrefixCollision:
 
         # Track the prefix passed to render_page
         render_prefix_used: list[Path] = []
-        original_render_page = MagicMock()
 
         def capture_render_prefix(
             pdf_path: Path,
@@ -323,6 +328,7 @@ class TestRenderPrefixCollision:
             output_prefix: Path,
             dpi: float,
             page_info: object,
+            pdf_data: bytes | None = None,
         ) -> list[Path]:
             render_prefix_used.append(output_prefix)
             # Simulate render producing a file
@@ -334,7 +340,7 @@ class TestRenderPrefixCollision:
 
         with (
             patch(_PATCH_GET_PAGE_COUNT, return_value=1),
-            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [])),
+            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [], False)),
             patch(_PATCH_GET_PAGE_INFO, return_value=PageInfo(612.0, 792.0)),
             patch(
                 _PATCH_DECIDE_MODE,
@@ -408,7 +414,13 @@ class TestSubImageIndexRegex:
         file_a.write_bytes(b"fake png A")
         file_b.write_bytes(b"fake png B")
 
-        config = make_config(path=str(tmp_path), verbose=False, replace=False, optimize=False, recursive=False)
+        config = make_config(
+            path=str(tmp_path),
+            verbose=False,
+            replace=False,
+            optimize=False,
+            recursive=False,
+        )
 
         _finalize_page_files(
             generated_files=[file_a, file_b],
@@ -484,9 +496,7 @@ class TestProcessSinglePdf:
         assert result.success is False
         assert "zero" in result.error.lower()
 
-    def test_successful_processing_with_mocked_pipeline(
-        self, tmp_path: Path
-    ) -> None:
+    def test_successful_processing_with_mocked_pipeline(self, tmp_path: Path) -> None:
         """Full pipeline succeeds with mocked analyze/extract/optimize.
 
         **Validates: Requirements 10.1, 5.3**
@@ -497,7 +507,7 @@ class TestProcessSinglePdf:
 
         with (
             patch(_PATCH_GET_PAGE_COUNT, return_value=2),
-            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [])),
+            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [], False)),
             patch(_PATCH_GET_PAGE_INFO, return_value=PageInfo(612.0, 792.0)),
             patch(
                 _PATCH_DECIDE_MODE,
@@ -516,9 +526,7 @@ class TestProcessSinglePdf:
 class TestProcessBatch:
     """Unit tests for process_batch."""
 
-    def test_batch_continues_after_individual_failure(
-        self, tmp_path: Path
-    ) -> None:
+    def test_batch_continues_after_individual_failure(self, tmp_path: Path) -> None:
         """Batch processes all files even when some fail.
 
         **Validates: Requirements 5.3, 1.6**
@@ -538,7 +546,7 @@ class TestProcessBatch:
         with (
             patch(_PATCH_CHECK_POPPLER, return_value=[]),
             patch(_PATCH_GET_PAGE_COUNT, side_effect=mock_page_count),
-            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [])),
+            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [], False)),
             patch(_PATCH_GET_PAGE_INFO, return_value=PageInfo(612.0, 792.0)),
             patch(
                 _PATCH_DECIDE_MODE,
@@ -586,7 +594,7 @@ class TestProcessBatch:
         with (
             patch(_PATCH_CHECK_POPPLER, return_value=[]),
             patch(_PATCH_GET_PAGE_COUNT, return_value=1),
-            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [])),
+            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [], False)),
             patch(_PATCH_GET_PAGE_INFO, return_value=PageInfo(612.0, 792.0)),
             patch(
                 _PATCH_DECIDE_MODE,
@@ -624,7 +632,7 @@ class TestProcessBatch:
         with (
             patch(_PATCH_CHECK_POPPLER, return_value=[]),
             patch(_PATCH_GET_PAGE_COUNT, return_value=1),
-            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [])),
+            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [], False)),
             patch(_PATCH_GET_PAGE_INFO, return_value=PageInfo(612.0, 792.0)),
             patch(
                 _PATCH_DECIDE_MODE,
@@ -640,9 +648,7 @@ class TestProcessBatch:
         assert results[0].pdf_path.name == "report!delete-final.pdf"
         assert results[0].success is True
 
-    def test_pdf_under_delete_directory_is_excluded(
-        self, tmp_path: Path
-    ) -> None:
+    def test_pdf_under_delete_directory_is_excluded(self, tmp_path: Path) -> None:
         """PDF inside a directory named '!delete' is excluded from batch.
 
         This is the positive case: the exclusion filter correctly skips files
@@ -662,7 +668,7 @@ class TestProcessBatch:
         with (
             patch(_PATCH_CHECK_POPPLER, return_value=[]),
             patch(_PATCH_GET_PAGE_COUNT, return_value=1),
-            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [])),
+            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [], False)),
             patch(_PATCH_GET_PAGE_INFO, return_value=PageInfo(612.0, 792.0)),
             patch(
                 _PATCH_DECIDE_MODE,
@@ -678,9 +684,7 @@ class TestProcessBatch:
         assert results[0].pdf_path.name == "normal.pdf"
         assert results[0].success is True
 
-    def test_batch_handles_exception_in_single_pdf(
-        self, tmp_path: Path
-    ) -> None:
+    def test_batch_handles_exception_in_single_pdf(self, tmp_path: Path) -> None:
         """Unexpected exception in process_single_pdf is caught per-file.
 
         **Validates: Requirements 5.3**
@@ -700,7 +704,7 @@ class TestProcessBatch:
         with (
             patch(_PATCH_CHECK_POPPLER, return_value=[]),
             patch(_PATCH_GET_PAGE_COUNT, side_effect=mock_page_count),
-            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [])),
+            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [], False)),
             patch(_PATCH_GET_PAGE_INFO, return_value=PageInfo(612.0, 792.0)),
             patch(
                 _PATCH_DECIDE_MODE,
@@ -744,7 +748,7 @@ class TestProcessPageReturnsPageResult:
         page = 3
 
         with (
-            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [])),
+            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [], False)),
             patch(_PATCH_GET_PAGE_INFO, return_value=PageInfo(612.0, 792.0)),
             patch(
                 _PATCH_DECIDE_MODE,
@@ -759,9 +763,7 @@ class TestProcessPageReturnsPageResult:
         assert result.page_num == page
         assert result.mode == ProcessingMode.EXTRACT
 
-    def test_process_page_returns_page_result_render_mode(
-        self, tmp_path: Path
-    ) -> None:
+    def test_process_page_returns_page_result_render_mode(self, tmp_path: Path) -> None:
         """_process_page returns PageResult with correct page_num and mode (RENDER)."""
         pdf_file = tmp_path / "test.pdf"
         pdf_file.write_bytes(b"%PDF-1.4 dummy")
@@ -774,7 +776,7 @@ class TestProcessPageReturnsPageResult:
         page = 7
 
         with (
-            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [])),
+            patch(_PATCH_GET_IMAGE_DATA, return_value=([], [], False)),
             patch(_PATCH_GET_PAGE_INFO, return_value=PageInfo(612.0, 792.0)),
             patch(
                 _PATCH_DECIDE_MODE,
@@ -788,3 +790,712 @@ class TestProcessPageReturnsPageResult:
         assert isinstance(result, PageResult)
         assert result.page_num == page
         assert result.mode == ProcessingMode.RENDER
+
+
+# ---------------------------------------------------------------------------
+# Bugfix: rendered-pages-output-loss — Bug Condition Exploration
+# ---------------------------------------------------------------------------
+
+
+class TestRenderedPagesOutputLoss:
+    """Bug condition exploration: RENDER path files silently discarded.
+
+    **Validates: bugfix rendered-pages-output-loss, Requirements 1.1, 1.2, 2.1, 2.2**
+    """
+
+    @settings(max_examples=50)
+    @given(
+        page=st.integers(min_value=1, max_value=999),
+        suffix=st.sampled_from([".png", ".jpg", ".jpeg"]),
+    )
+    def test_render_path_files_included_in_output(self, page, suffix):
+        """RENDER path files (pdftocairo -singlefile format) must be included in output.
+
+        Bug: _finalize_page_files() regex r"-(\\d+)\\.(?:png|jpg|jpeg)$" doesn't match
+        pdftocairo -singlefile output format "render_{page}_tmp.png" → silently skipped.
+
+        This test MUST FAIL on unfixed code — failure confirms the bug exists.
+        """
+        import shutil
+        import tempfile
+
+        work_dir = Path(tempfile.mkdtemp(prefix="pbt_render_"))
+        try:
+            workspace = work_dir / "work"
+            workspace.mkdir()
+            output_dir = work_dir / "output"
+            output_dir.mkdir()
+
+            # Simulate pdftocairo -singlefile output: render_{page}_tmp{suffix}
+            render_file = workspace / f"render_{page}_tmp{suffix}"
+            render_file.write_bytes(b"\x89PNG fake image data")
+
+            config = make_config(
+                path=str(work_dir),
+                verbose=False,
+                replace=False,
+                optimize=False,
+                recursive=False,
+            )
+
+            result = _finalize_page_files(
+                generated_files=[render_file],
+                mask_indices=[],
+                was_rendered=True,
+                page=page,
+                output_dir=output_dir,
+                config=config,
+            )
+
+            # Expected: RENDER file is processed and output as {page:03d}_r{suffix}
+            expected_name = f"{page:03d}_r{suffix}"
+            assert len(result) >= 1, (
+                f"_finalize_page_files() returned empty list for RENDER file "
+                f"'{render_file.name}' — file was silently discarded by regex"
+            )
+            assert result[0].name == expected_name, (
+                f"Expected output filename '{expected_name}', got '{result[0].name}'"
+            )
+            assert result[0].exists(), (
+                f"Output file '{result[0]}' does not exist on disk"
+            )
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Bugfix: rendered-pages-output-loss — Preservation Property Tests (Task 2)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractPathPreservation:
+    """Preservation: EXTRACT path behavior is completely unchanged after fix.
+
+    **Validates: bugfix rendered-pages-output-loss, Requirements 3.1, 3.2, 3.3, 3.4, 3.5**
+
+    These tests observe EXTRACT path behavior on UNFIXED code and verify it is
+    preserved. All tests MUST PASS on unfixed code (baseline) and MUST PASS
+    after the fix (no regression).
+    """
+
+    @settings(max_examples=50, deadline=None)
+    @given(
+        page=st.integers(min_value=1, max_value=999),
+        suffix=st.sampled_from([".png", ".jpg", ".jpeg"]),
+        num_images=st.integers(min_value=1, max_value=5),
+    )
+    def test_extract_path_non_mask_files_moved_to_output(
+        self, page: int, suffix: str, num_images: int
+    ) -> None:
+        """EXTRACT path: non-mask files are moved to output_dir with correct naming.
+
+        Generates random file lists matching prefix-{NNN}.{ext} pattern.
+        Verifies non-mask files are moved to output_dir with correct naming.
+
+        **Validates: Requirements 3.1, 3.2**
+        """
+        import shutil
+        import tempfile
+
+        work_dir = Path(tempfile.mkdtemp(prefix=f"pbt_preserve_{uuid4().hex}_"))
+        try:
+            workspace = work_dir / "work"
+            workspace.mkdir()
+            output_dir = work_dir / "output"
+            output_dir.mkdir()
+
+            # Create files matching pdfimages output pattern: prefix-{NNN}.ext
+            generated_files: list[Path] = []
+            for i in range(num_images):
+                fname = workspace / f"page_{page}_tmp-{i:03d}{suffix}"
+                fname.write_bytes(b"\x89PNG fake image data")
+                generated_files.append(fname)
+
+            config = make_config(
+                path=str(work_dir),
+                verbose=False,
+                replace=False,
+                optimize=False,
+                recursive=False,
+            )
+
+            result = _finalize_page_files(
+                generated_files=generated_files,
+                mask_indices=[],  # no masks
+                was_rendered=False,
+                page=page,
+                output_dir=output_dir,
+                config=config,
+            )
+
+            # All files should be in output (no mask filtering)
+            assert len(result) == num_images, (
+                f"Expected {num_images} output files for {num_images} EXTRACT files, "
+                f"got {len(result)}"
+            )
+            # All output files must exist
+            for f in result:
+                assert f.exists(), f"Output file '{f}' does not exist on disk"
+                assert f.parent == output_dir, f"Output file '{f}' not in output_dir"
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+    @settings(max_examples=50, deadline=None)
+    @given(
+        page=st.integers(min_value=1, max_value=999),
+        suffix=st.sampled_from([".png", ".jpg", ".jpeg"]),
+        num_images=st.integers(min_value=2, max_value=6),
+        mask_count=st.integers(min_value=1, max_value=1),
+    )
+    def test_extract_path_mask_files_are_deleted(
+        self, page: int, suffix: str, num_images: int, mask_count: int
+    ) -> None:
+        """EXTRACT path: files whose index is in mask_indices are deleted, not in output.
+
+        **Validates: Requirements 3.3**
+        """
+        import shutil
+        import tempfile
+
+        work_dir = Path(tempfile.mkdtemp(prefix=f"pbt_mask_{uuid4().hex}_"))
+        try:
+            workspace = work_dir / "work"
+            workspace.mkdir()
+            output_dir = work_dir / "output"
+            output_dir.mkdir()
+
+            # Create files; always mask the first one (index 000)
+            generated_files: list[Path] = []
+            for i in range(num_images):
+                fname = workspace / f"page_{page}_tmp-{i:03d}{suffix}"
+                fname.write_bytes(b"\x89PNG fake image data")
+                generated_files.append(fname)
+
+            # Mask the first file (index 000)
+            mask_indices = ["000"]
+
+            config = make_config(
+                path=str(work_dir),
+                verbose=False,
+                replace=False,
+                optimize=False,
+                recursive=False,
+            )
+
+            result = _finalize_page_files(
+                generated_files=generated_files,
+                mask_indices=mask_indices,
+                was_rendered=False,
+                page=page,
+                output_dir=output_dir,
+                config=config,
+            )
+
+            # Masked file should NOT be in output
+            expected_output = num_images - len(mask_indices)
+            assert len(result) == expected_output, (
+                f"Expected {expected_output} output files (mask filtered {len(mask_indices)}), "
+                f"got {len(result)}"
+            )
+            # The masked file should be deleted from disk
+            masked_file = generated_files[0]
+            assert not masked_file.exists(), (
+                f"Masked file '{masked_file.name}' should have been deleted but still exists"
+            )
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+    def test_extract_path_non_image_extensions_are_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        """EXTRACT path: files with non-image extensions are skipped.
+
+        **Validates: Requirements 3.4**
+        """
+        workspace = tmp_path / "work"
+        workspace.mkdir()
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Create a mix of image and non-image files in pdfimages format
+        img_file = workspace / "page_1_tmp-000.png"
+        txt_file = workspace / "page_1_tmp-001.txt"
+        pdf_file = workspace / "page_1_tmp-002.pdf"
+        img_file.write_bytes(b"\x89PNG fake image data")
+        txt_file.write_bytes(b"not an image")
+        pdf_file.write_bytes(b"%PDF-1.4 fake")
+
+        config = make_config(
+            path=str(tmp_path),
+            verbose=False,
+            replace=False,
+            optimize=False,
+            recursive=False,
+        )
+
+        result = _finalize_page_files(
+            generated_files=[img_file, txt_file, pdf_file],
+            mask_indices=[],
+            was_rendered=False,
+            page=1,
+            output_dir=output_dir,
+            config=config,
+        )
+
+        # Only the .png file should be in output
+        assert len(result) == 1, (
+            f"Expected 1 output file (only .png), got {len(result)}: {[f.name for f in result]}"
+        )
+        assert result[0].suffix == ".png"
+
+    @settings(max_examples=30)
+    @given(
+        page=st.integers(min_value=1, max_value=999),
+        suffix=st.sampled_from([".png", ".jpg", ".jpeg"]),
+    )
+    def test_extract_path_sub_image_naming(self, page: int, suffix: str) -> None:
+        """EXTRACT path: multiple files per page get sub-image naming {page:03d}_{sub_idx}{ext}.
+
+        When multiple images exist for a page, the second and subsequent files
+        use sub-image naming to avoid collision.
+
+        **Validates: Requirements 3.5**
+        """
+        import shutil
+        import tempfile
+
+        work_dir = Path(tempfile.mkdtemp(prefix="pbt_subimg_"))
+        try:
+            workspace = work_dir / "work"
+            workspace.mkdir()
+            output_dir = work_dir / "output"
+            output_dir.mkdir()
+
+            # Two files for the same page (no mask)
+            file_a = workspace / f"page_{page}_tmp-000{suffix}"
+            file_b = workspace / f"page_{page}_tmp-001{suffix}"
+            file_a.write_bytes(b"\x89PNG fake image A")
+            file_b.write_bytes(b"\x89PNG fake image B")
+
+            config = make_config(
+                path=str(work_dir),
+                verbose=False,
+                replace=False,
+                optimize=False,
+                recursive=False,
+            )
+
+            result = _finalize_page_files(
+                generated_files=[file_a, file_b],
+                mask_indices=[],
+                was_rendered=False,
+                page=page,
+                output_dir=output_dir,
+                config=config,
+            )
+
+            assert len(result) == 2, f"Expected 2 output files, got {len(result)}"
+
+            names = {f.name for f in result}
+            base_name = f"{page:03d}{suffix}"
+            assert base_name in names, (
+                f"Expected base name '{base_name}' in output, got: {names}"
+            )
+            # Second file should have sub-image naming
+            sub_name = f"{page:03d}_001{suffix}"
+            assert sub_name in names, (
+                f"Expected sub-image name '{sub_name}' in output, got: {names}"
+            )
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Feature: codebase-improvements, Property 1: Finalization behavioral equivalence
+# ---------------------------------------------------------------------------
+
+
+class TestFinalizationBehavioralEquivalence:
+    """Dispatcher delegates correctly based on was_rendered flag.
+
+    **Validates: Requirements 1.4, 5.2**
+
+    Property: For any set of generated files (with valid image extensions),
+    mask indices, page number, was_rendered flag, and Config, the dispatcher
+    _finalize_page_files() produces identical output as calling the
+    sub-function directly.
+    """
+
+    @settings(max_examples=100, deadline=None)
+    @given(
+        page=st.integers(min_value=1, max_value=999),
+        suffix=st.sampled_from([".png", ".jpg", ".jpeg"]),
+    )
+    def test_render_path_delegates_to_finalize_rendered(
+        self, page: int, suffix: str
+    ) -> None:
+        """RENDER path: dispatcher output == _finalize_rendered_file() output.
+
+        Verifies files are optimized (skipped when optimize=False),
+        renamed with _r suffix, and moved to output directory.
+        """
+        import shutil
+        import tempfile
+
+        from pdf_goon.core import _finalize_rendered_file
+
+        work_dir = Path(tempfile.mkdtemp(prefix="pbt_fin_render_"))
+        try:
+            # Set up two independent workspaces for comparison
+            ws_dispatch = work_dir / "dispatch"
+            ws_dispatch.mkdir()
+            out_dispatch = work_dir / "out_dispatch"
+            out_dispatch.mkdir()
+
+            ws_direct = work_dir / "direct"
+            ws_direct.mkdir()
+            out_direct = work_dir / "out_direct"
+            out_direct.mkdir()
+
+            # Simulate pdftocairo -singlefile output
+            file_dispatch = ws_dispatch / f"render_{page}_tmp{suffix}"
+            file_dispatch.write_bytes(b"\x89PNG fake render output")
+
+            file_direct = ws_direct / f"render_{page}_tmp{suffix}"
+            file_direct.write_bytes(b"\x89PNG fake render output")
+
+            config = make_config(
+                path=str(work_dir),
+                verbose=False,
+                replace=False,
+                optimize=False,
+                recursive=False,
+            )
+
+            # Call dispatcher with was_rendered=True
+            result_dispatch = _finalize_page_files(
+                generated_files=[file_dispatch],
+                mask_indices=[],
+                was_rendered=True,
+                page=page,
+                output_dir=out_dispatch,
+                config=config,
+            )
+
+            # Call sub-function directly
+            result_direct = _finalize_rendered_file(
+                generated_files=[file_direct],
+                page=page,
+                output_dir=out_direct,
+                config=config,
+            )
+
+            # Same number of output files
+            assert len(result_dispatch) == len(result_direct), (
+                f"Dispatcher produced {len(result_dispatch)} files, "
+                f"direct call produced {len(result_direct)}"
+            )
+
+            # Same filenames (relative to their output dirs)
+            names_dispatch = sorted(f.name for f in result_dispatch)
+            names_direct = sorted(f.name for f in result_direct)
+            assert names_dispatch == names_direct, (
+                f"Filename mismatch: dispatcher={names_dispatch}, direct={names_direct}"
+            )
+
+            # Verify RENDER naming convention: {page:03d}_r{suffix}
+            expected_name = f"{page:03d}_r{suffix}"
+            assert len(result_dispatch) == 1
+            assert result_dispatch[0].name == expected_name
+
+            # Same file content
+            for fd, fr in zip(
+                sorted(result_dispatch, key=lambda p: p.name),
+                sorted(result_direct, key=lambda p: p.name),
+            ):
+                assert fd.read_bytes() == fr.read_bytes(), (
+                    f"Content mismatch for '{fd.name}'"
+                )
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+    @settings(max_examples=100, deadline=None)
+    @given(
+        page=st.integers(min_value=1, max_value=999),
+        suffix=st.sampled_from([".png", ".jpg", ".jpeg"]),
+        num_images=st.integers(min_value=1, max_value=4),
+        has_mask=st.booleans(),
+    )
+    def test_extract_path_delegates_to_finalize_extracted(
+        self, page: int, suffix: str, num_images: int, has_mask: bool
+    ) -> None:
+        """EXTRACT path: dispatcher output == _finalize_extracted_files() output.
+
+        Verifies mask filtering, page number naming, and sub-image naming
+        all produce identical results via dispatcher vs direct call.
+        """
+        import shutil
+        import tempfile
+
+        from pdf_goon.core import _finalize_extracted_files
+
+        work_dir = Path(tempfile.mkdtemp(prefix="pbt_fin_extract_"))
+        try:
+            ws_dispatch = work_dir / "dispatch"
+            ws_dispatch.mkdir()
+            out_dispatch = work_dir / "out_dispatch"
+            out_dispatch.mkdir()
+
+            ws_direct = work_dir / "direct"
+            ws_direct.mkdir()
+            out_direct = work_dir / "out_direct"
+            out_direct.mkdir()
+
+            # Generate files matching pdfimages output: prefix-{NNN}.ext
+            files_dispatch: list[Path] = []
+            files_direct: list[Path] = []
+            for i in range(num_images):
+                content = f"image data {i}".encode()
+                fd = ws_dispatch / f"page_{page}_tmp-{i:03d}{suffix}"
+                fd.write_bytes(content)
+                files_dispatch.append(fd)
+
+                fr = ws_direct / f"page_{page}_tmp-{i:03d}{suffix}"
+                fr.write_bytes(content)
+                files_direct.append(fr)
+
+            # Optionally mask the first image (index "000")
+            mask_indices = ["000"] if (has_mask and num_images > 1) else []
+
+            config = make_config(
+                path=str(work_dir),
+                verbose=False,
+                replace=False,
+                optimize=False,
+                recursive=False,
+            )
+
+            # Call dispatcher with was_rendered=False
+            result_dispatch = _finalize_page_files(
+                generated_files=files_dispatch,
+                mask_indices=mask_indices,
+                was_rendered=False,
+                page=page,
+                output_dir=out_dispatch,
+                config=config,
+            )
+
+            # Call sub-function directly
+            result_direct = _finalize_extracted_files(
+                generated_files=files_direct,
+                mask_indices=mask_indices,
+                page=page,
+                output_dir=out_direct,
+                config=config,
+            )
+
+            # Same number of output files
+            assert len(result_dispatch) == len(result_direct), (
+                f"Dispatcher produced {len(result_dispatch)} files, "
+                f"direct call produced {len(result_direct)}"
+            )
+
+            # Same filenames
+            names_dispatch = sorted(f.name for f in result_dispatch)
+            names_direct = sorted(f.name for f in result_direct)
+            assert names_dispatch == names_direct, (
+                f"Filename mismatch: dispatcher={names_dispatch}, direct={names_direct}"
+            )
+
+            # Verify mask filtering took effect
+            expected_count = num_images - len(mask_indices)
+            assert len(result_dispatch) == expected_count, (
+                f"Expected {expected_count} files after mask filter, "
+                f"got {len(result_dispatch)}"
+            )
+
+            # Same file content
+            for fd, fr in zip(
+                sorted(result_dispatch, key=lambda p: p.name),
+                sorted(result_direct, key=lambda p: p.name),
+            ):
+                assert fd.read_bytes() == fr.read_bytes(), (
+                    f"Content mismatch for '{fd.name}'"
+                )
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+    @settings(max_examples=100, deadline=None)
+    @given(was_rendered=st.booleans())
+    def test_dispatcher_routing_is_deterministic(self, was_rendered: bool) -> None:
+        """Dispatcher always routes to the correct sub-function based on flag.
+
+        When was_rendered=True → RENDER naming (_r suffix).
+        When was_rendered=False → EXTRACT naming (page number).
+        """
+        import shutil
+        import tempfile
+
+        work_dir = Path(tempfile.mkdtemp(prefix="pbt_fin_route_"))
+        try:
+            workspace = work_dir / "work"
+            workspace.mkdir()
+            output_dir = work_dir / "output"
+            output_dir.mkdir()
+
+            page = 5
+            suffix = ".png"
+
+            if was_rendered:
+                # RENDER format: render_{page}_tmp.png
+                test_file = workspace / f"render_{page}_tmp{suffix}"
+            else:
+                # EXTRACT format: prefix-{NNN}.ext
+                test_file = workspace / f"page_{page}_tmp-000{suffix}"
+
+            test_file.write_bytes(b"\x89PNG test routing")
+
+            config = make_config(
+                path=str(work_dir),
+                verbose=False,
+                replace=False,
+                optimize=False,
+                recursive=False,
+            )
+
+            result = _finalize_page_files(
+                generated_files=[test_file],
+                mask_indices=[],
+                was_rendered=was_rendered,
+                page=page,
+                output_dir=output_dir,
+                config=config,
+            )
+
+            assert len(result) == 1, f"Expected 1 output file, got {len(result)}"
+
+            if was_rendered:
+                # RENDER convention: {page:03d}_r{suffix}
+                assert "_r" in result[0].name, (
+                    f"RENDER path should produce '_r' suffix, got '{result[0].name}'"
+                )
+            else:
+                # EXTRACT convention: {page:03d}{suffix} (no _r)
+                assert "_r" not in result[0].name, (
+                    f"EXTRACT path should NOT have '_r' suffix, got '{result[0].name}'"
+                )
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Feature: codebase-improvements, Property: BLANK page skip behavior
+# ---------------------------------------------------------------------------
+
+
+class _RecordingAnalyzeBackend:
+    """Fake analyze backend forcing a BLANK decision (no images, no text).
+
+    Returning ([], [], False) from get_image_data combined with keep_blank=False
+    guarantees decide_processing_mode yields ProcessingMode.BLANK.
+    """
+
+    def get_page_count(self, pdf_path: Path) -> int | None:
+        return 1
+
+    def get_image_data(self, pdf_path: Path, page_num: int) -> tuple[list, list, bool]:
+        return ([], [], False)
+
+    def get_page_info(self, pdf_path: Path, page_num: int) -> PageInfo:
+        return PageInfo(width_pts=612.0, height_pts=792.0)
+
+
+class _RecordingExtractBackend:
+    """Fake extract backend that records whether it was invoked."""
+
+    def __init__(self) -> None:
+        self.called = False
+
+    def extract_images(
+        self, pdf_path: Path, page_num: int, output_prefix: Path
+    ) -> list[Path]:
+        self.called = True
+        return []
+
+
+class _RecordingRenderBackend:
+    """Fake render backend that records whether it was invoked."""
+
+    def __init__(self) -> None:
+        self.called = False
+
+    def render_page(
+        self,
+        pdf_path: Path,
+        page_num: int,
+        output_prefix: Path,
+        dpi: float,
+        page_info: PageInfo,
+    ) -> list[Path]:
+        self.called = True
+        return []
+
+
+@settings(max_examples=100)
+@given(page=st.integers(min_value=1, max_value=500))
+def test_blank_page_skip_behavior(page: int) -> None:
+    """BLANK pages short-circuit: no backend calls, empty PageResult, no error.
+
+    When decide_processing_mode yields ProcessingMode.BLANK, _process_page must
+    return a PageResult(mode=BLANK, files_produced=(), error=None) WITHOUT ever
+    calling the extract or render backends.
+
+    **Validates: Property: BLANK page skip behavior**
+    """
+    import shutil
+    import tempfile
+
+    work_dir = Path(tempfile.mkdtemp(prefix="pbt_blank_skip_"))
+    try:
+        workspace = work_dir / "workspace"
+        workspace.mkdir()
+        output_dir = work_dir / "output"
+        output_dir.mkdir()
+
+        pdf_file = work_dir / "blank.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4 dummy")
+
+        # keep_blank=False forces BLANK when there are no images and no text.
+        config = make_config(
+            path=str(work_dir),
+            keep_blank=False,
+            optimize=False,
+        )
+
+        analyze = _RecordingAnalyzeBackend()
+        extract = _RecordingExtractBackend()
+        render = _RecordingRenderBackend()
+
+        result = _process_page(
+            pdf_file,
+            page,
+            page,  # total_pages
+            workspace,
+            output_dir,
+            config,
+            analyze_backend=analyze,
+            extract_backend=extract,
+            render_backend=render,
+        )
+
+        # Backends must never be invoked for a BLANK page.
+        assert extract.called is False, "extract backend must not be called for BLANK"
+        assert render.called is False, "render backend must not be called for BLANK"
+
+        # The PageResult reflects an empty, error-free BLANK outcome.
+        assert isinstance(result, PageResult)
+        assert result.mode == ProcessingMode.BLANK
+        assert result.files_produced == ()
+        assert result.error is None
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)

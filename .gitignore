@@ -25,3 +25,16 @@ build/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# AI IDE tools (local only)
+.kiro/
+.cursor/
+.cursorrules
+.geminirules
+CLAUDE.md
+
+# Internal docs (Chinese / promotional — not for public repo)
+docs/
+
+# CodeGraph index
+.codegraph/

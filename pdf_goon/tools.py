@@ -8,21 +8,23 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pdf_goon.models import POPPLER_TOOLS, SubprocessError
+from pdf_goon.models import SubprocessError
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT: int = 300  # 5 minutes — prevents hanging on malicious PDFs
 
 # Only these tools may be resolved from the local directory (binary planting protection)
-_ALLOWED_LOCAL_TOOLS: frozenset[str] = frozenset({
-    "pdfimages", "pdfimages.exe",
-    "pdfinfo", "pdfinfo.exe",
-    "pdftocairo", "pdftocairo.exe",
-    "pingo", "pingo.exe",
-    "oxipng", "oxipng.exe",
-    "jpegoptim", "jpegoptim.exe",
-})
+_ALLOWED_LOCAL_TOOLS: frozenset[str] = frozenset(
+    {
+        "pingo",
+        "pingo.exe",
+        "oxipng",
+        "oxipng.exe",
+        "jpegoptim",
+        "jpegoptim.exe",
+    }
+)
 
 
 def get_tool_path(tool_name: str) -> str:
@@ -49,7 +51,7 @@ def get_tool_path(tool_name: str) -> str:
 
 
 def run_command(cmd: list[str], *, timeout: int = _DEFAULT_TIMEOUT) -> str:
-    """Execute a subprocess and return stdout, filtering irrelevant Poppler warnings."""
+    """Execute a subprocess and return stdout."""
     try:
         result = subprocess.run(
             cmd,
@@ -65,51 +67,37 @@ def run_command(cmd: list[str], *, timeout: int = _DEFAULT_TIMEOUT) -> str:
             exit_code=-1,
             stderr=f"Process timed out after {timeout}s",
         ) from exc
+    except FileNotFoundError as exc:
+        # Executable not found on PATH — wrap as SubprocessError for uniform handling
+        raise SubprocessError(
+            tool=cmd[0],
+            exit_code=-1,
+            stderr=f"Executable not found: {cmd[0]}",
+        ) from exc
 
     # Log raw stderr at DEBUG level for diagnostics
     if result.stderr and result.stderr.strip():
         logger.debug("stderr from %s:\n%s", cmd[0], result.stderr.rstrip())
 
-    # Filter irrelevant Poppler noise from stderr
     if result.returncode != 0:
-        filtered = _filter_stderr(result.stderr)
         raise SubprocessError(
             tool=cmd[0],
             exit_code=result.returncode,
-            stderr=filtered,
+            stderr=result.stderr,
         )
 
     return result.stdout
 
 
-def check_poppler_available() -> list[str]:
-    """Return list of missing required Poppler tools (empty means all present)."""
-    return [tool for tool in POPPLER_TOOLS if shutil.which(tool) is None]
-
-
 def check_optimizer_available(platform: str) -> bool:
     """Check if optimization tools are available for the given platform."""
     if platform == "nt":
-        return shutil.which("pingo") is not None
+        return get_tool_path("pingo") != "pingo" or shutil.which("pingo") is not None
 
     # posix: need at least one of oxipng or jpegoptim
     return (
-        shutil.which("oxipng") is not None
+        get_tool_path("oxipng") != "oxipng"
+        or shutil.which("oxipng") is not None
+        or get_tool_path("jpegoptim") != "jpegoptim"
         or shutil.which("jpegoptim") is not None
     )
-
-
-def _filter_stderr(stderr: str) -> str:
-    """Remove irrelevant Poppler syntax warnings from stderr output."""
-    if not stderr or not stderr.strip():
-        return ""
-
-    lines = stderr.splitlines()
-    filtered = [
-        line
-        for line in lines
-        if line.strip()
-        and "Syntax Warning:" not in line
-        and "Syntax Error:" not in line
-    ]
-    return "\n".join(filtered)
