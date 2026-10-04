@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pdf-goon"
-version = "1.0"
-description = "Extract and render images from PDF files using Poppler tools"
+version = "1.0.0b0"
+description = "Extract and render images from PDF files with smart per-page decision logic"
 requires-python = ">=3.11"
 license = "MIT"
 

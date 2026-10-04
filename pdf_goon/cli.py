@@ -19,7 +19,7 @@ def _build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser with v1.0.1-compatible flags."""
     parser = argparse.ArgumentParser(
         description=DESCRIPTION,
-        epilog=f"Version {VERSION} | Credits: Uses Poppler-utils and Pingo.exe. | Author: Dnkz",
+        epilog=f"Version {VERSION} | Credits: Uses pypdf, pypdfium2, and Pingo.exe. | Author: Dnkz",
     )
     parser.add_argument(
         "path",
