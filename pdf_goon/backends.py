@@ -24,6 +24,24 @@ class AnalyzeBackend(Protocol):
 
 
 @runtime_checkable
+class PdfAnalyzeSession(Protocol):
+    """Protocol for an active PDF analysis session."""
+
+    def inspect_page(
+        self, page_num: int
+    ) -> tuple[list[ImageInfo], list[str], bool, PageInfo]: ...
+
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class SessionAnalyzeBackend(AnalyzeBackend, Protocol):
+    """Protocol for analysis backends supporting sequential session inspection."""
+
+    def open_session(self, pdf_path: Path) -> PdfAnalyzeSession: ...
+
+
+@runtime_checkable
 class ExtractBackend(Protocol):
     """Protocol for image extraction from PDF pages."""
 
@@ -49,11 +67,22 @@ class RenderBackend(Protocol):
     ) -> list[Path]: ...
 
 
+@runtime_checkable
+class BatchRenderBackend(RenderBackend, Protocol):
+    """Protocol for batch PDF page rendering."""
+
+    def render_batch(
+        self,
+        pdf_path: Path,
+        tasks: list[dict],
+    ) -> list[Path]: ...
+
+
 # --- Default implementations ---
 
 
 class PypdfAnalyzeBackend:
-    """Default analysis backend wrapping analyze.py functions."""
+    """Default analysis backend wrapping analyze.py functions and session."""
 
     def get_page_count(self, pdf_path: Path) -> int | None:
         from pdf_goon.analyze import get_page_count
@@ -74,6 +103,11 @@ class PypdfAnalyzeBackend:
 
         return get_page_info(pdf_path, page_num)
 
+    def open_session(self, pdf_path: Path) -> PdfAnalyzeSession:
+        from pdf_goon.analyze import PypdfSession
+
+        return PypdfSession(pdf_path)
+
 
 class PypdfExtractBackend:
     """Default extraction backend wrapping extract.py."""
@@ -90,7 +124,7 @@ class PypdfExtractBackend:
 
 
 class Pypdfium2RenderBackend:
-    """Default render backend wrapping extract.py render_page."""
+    """Default render backend wrapping extract.py render_page and render_batch."""
 
     def render_page(
         self,
@@ -103,3 +137,12 @@ class Pypdfium2RenderBackend:
         from pdf_goon.extract import render_page
 
         return render_page(pdf_path, page_num, output_prefix, dpi, page_info)
+
+    def render_batch(
+        self,
+        pdf_path: Path,
+        tasks: list[dict],
+    ) -> list[Path]:
+        from pdf_goon.extract import render_batch
+
+        return render_batch(pdf_path, tasks)

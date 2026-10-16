@@ -6,6 +6,10 @@ __pycache__/
 dist/
 build/
 *.egg
+*.spec
+
+# Test corpus (local binary PDFs)
+real_test_pdfs/
 
 # Virtual environment
 .venv/
@@ -31,7 +35,11 @@ Desktop.ini
 .cursor/
 .cursorrules
 .geminirules
+.agents/
 CLAUDE.md
+
+# Archives / local testing tools
+*.zip
 
 # Internal docs (Chinese / promotional — not for public repo)
 docs/

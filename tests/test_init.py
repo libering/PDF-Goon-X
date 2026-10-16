@@ -86,6 +86,7 @@ class TestProcessDelegatesToCore:
             force_render=False,
             debug=False,
             keep_blank=False,
+            margin_tolerance=3.0,
         )
 
         # process_batch was called with the constructed config

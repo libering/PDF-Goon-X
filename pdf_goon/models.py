@@ -9,12 +9,12 @@ from pathlib import Path
 
 # --- Constants ---
 
-VERSION: str = "1.0.0b0"
+VERSION: str = "1.0.0"
 DPI_MIN: int = 36
 DPI_MAX: int = 2400
 MIN_WIDTH_DEFAULT: int = 500
 PROGRESS_BAR_LENGTH: int = 20
-TRICKY_COLORS: frozenset[str] = frozenset({"devn", "cmyk", "sep"})
+TRICKY_COLORS: frozenset[str] = frozenset({"devn", "cmyk", "sep", "colortransform0"})
 
 
 # --- Enums ---
@@ -45,6 +45,7 @@ class Config:
     force_render: bool = False
     debug: bool = False
     keep_blank: bool = False
+    margin_tolerance: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,9 @@ class ImageInfo:
     width: int
     height: int
     color: str
-    is_mask: bool
+    is_mask: bool = False
+    placed_bbox: tuple[float, float, float, float] | None = None
+    has_rotation: bool = False
 
 
 @dataclass(frozen=True)
@@ -145,6 +148,11 @@ def make_config(**kwargs: object) -> Config:
     raw_min_w = kwargs.get("min_width", MIN_WIDTH_DEFAULT)
     min_width_val = raw_min_w if isinstance(raw_min_w, int) else int(str(raw_min_w))
 
+    raw_margin = kwargs.get("margin_tolerance", 3.0)
+    margin_tolerance_val = (
+        float(raw_margin) if raw_margin is not None else 3.0  # type: ignore[arg-type]
+    )
+
     return Config(
         path=path,
         verbose=verbose,
@@ -156,4 +164,5 @@ def make_config(**kwargs: object) -> Config:
         force_render=bool(kwargs.get("force_render", False)),
         debug=debug,
         keep_blank=bool(kwargs.get("keep_blank", False)),
+        margin_tolerance=margin_tolerance_val,
     )

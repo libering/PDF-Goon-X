@@ -60,6 +60,14 @@ def extract_images(
         ) from exc
 
 
+def _get_worker_cmd() -> list[str]:
+    import sys
+
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--_render_worker"]
+    return [sys.executable, "-m", "pdf_goon._render_worker"]
+
+
 def render_page(
     pdf_path: Path,
     page_num: int,
@@ -70,17 +78,13 @@ def render_page(
     run: Callable[[list[str]], str] = run_command,
 ) -> list[Path]:
     """Render a PDF page via the standalone worker subprocess."""
-    import sys
     from pdf_goon.models import PdfGoonError, SubprocessError
 
     out_file = output_prefix.with_suffix(".png")
     if out_file.name == output_prefix.name:
         out_file = output_prefix.parent / f"{output_prefix.name}.png"
 
-    cmd = [
-        sys.executable,
-        "-m",
-        "pdf_goon._render_worker",
+    cmd = _get_worker_cmd() + [
         str(pdf_path),
         str(page_num),
         str(dpi),
@@ -95,3 +99,45 @@ def render_page(
         ) from exc
 
     return [out_file]
+
+
+def render_batch(
+    pdf_path: Path,
+    tasks: list[dict],
+    *,
+    run: Callable[[list[str]], str] = run_command,
+) -> list[Path]:
+    """Render multiple PDF pages in a single batch worker subprocess."""
+    import json
+    import tempfile
+    from pdf_goon.models import PdfGoonError, SubprocessError
+
+    if not tasks:
+        return []
+
+    # Write tasks to a temporary JSON file to avoid shell argument length limits
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".json", delete=False, encoding="utf-8"
+    ) as f:
+        json.dump(tasks, f)
+        tasks_file = Path(f.name)
+
+    cmd = _get_worker_cmd() + [
+        "--batch",
+        str(pdf_path),
+        str(tasks_file),
+    ]
+
+    try:
+        run(cmd)
+    except SubprocessError as exc:
+        raise PdfGoonError(
+            f"Failed to batch render pages with pypdfium2: {exc.stderr}"
+        ) from exc
+    finally:
+        try:
+            tasks_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return [Path(t["out"]) for t in tasks]

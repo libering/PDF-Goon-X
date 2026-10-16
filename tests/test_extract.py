@@ -11,7 +11,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 import pytest
 
-from pdf_goon.extract import extract_images, render_page
+from pdf_goon.extract import extract_images, render_batch, render_page
 from pdf_goon.models import PageInfo, PdfGoonError, SubprocessError
 
 
@@ -290,3 +290,46 @@ class TestRenderCommandConstruction:
         assert cmd[5] == str(dpi)
         assert cmd[6] == str(expected_out)
         assert len(cmd) == 7
+
+
+class TestRenderBatch:
+    """Tests for batch rendering via render_batch."""
+
+    def test_render_batch_issues_batch_subprocess(self, tmp_path: Path) -> None:
+        """render_batch issues a single subprocess call with --batch and tasks file."""
+        captured_cmds: list[list[str]] = []
+
+        def capturing_run(cmd: list[str]) -> str:
+            captured_cmds.append(cmd)
+            return ""
+
+        pdf_path = tmp_path / "sample.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4 dummy")
+        out1 = tmp_path / "001.png"
+        out2 = tmp_path / "002.png"
+
+        tasks = [
+            {"page": 1, "dpi": 300.0, "out": str(out1)},
+            {"page": 2, "dpi": 450.0, "out": str(out2)},
+        ]
+
+        results = render_batch(pdf_path, tasks, run=capturing_run)
+
+        assert len(results) == 2
+        assert results[0] == out1
+        assert results[1] == out2
+
+        assert len(captured_cmds) == 1
+        cmd = captured_cmds[0]
+        assert cmd[0] == sys.executable
+        assert cmd[1] == "-m"
+        assert cmd[2] == "pdf_goon._render_worker"
+        assert cmd[3] == "--batch"
+        assert cmd[4] == str(pdf_path)
+        assert Path(cmd[5]).suffix == ".json"
+
+    def test_render_batch_empty_tasks_returns_empty(self, tmp_path: Path) -> None:
+        """Empty task list returns immediately without invoking subprocess."""
+        pdf_path = tmp_path / "sample.pdf"
+        results = render_batch(pdf_path, [])
+        assert results == []

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pdf-goon"
-version = "1.0.0b0"
+version = "1.0.0"
 description = "Extract and render images from PDF files with smart per-page decision logic"
 requires-python = ">=3.11"
 license = "MIT"
@@ -14,9 +14,12 @@ dependencies = [
     "pypdfium2>=4.0",
     "Pillow>=10.0.0",
 ]
+
 [project.scripts]
 pdf-goon = "pdf_goon.cli:main"
 
+[tool.setuptools.packages.find]
+include = ["pdf_goon*"]
 
 [project.optional-dependencies]
 dev = [

@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 import shutil
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pdf_goon.backends import AnalyzeBackend, ExtractBackend, RenderBackend
+
+from pdf_goon.backends import BatchRenderBackend
 
 from pdf_goon.analyze import (
     decide_processing_mode,
@@ -26,6 +26,7 @@ from pdf_goon.models import (
     PROGRESS_BAR_LENGTH,
     Config,
     ImageInfo,
+    PageDecision,
     PageInfo,
     PageResult,
     ProcessingMode,
@@ -58,6 +59,11 @@ class _DefaultAnalyzeBackend:
     def get_page_info(self, pdf_path: Path, page_num: int) -> PageInfo:
         return get_page_info(pdf_path, page_num)
 
+    def open_session(self, pdf_path: Path):
+        from pdf_goon.analyze import PypdfSession
+
+        return PypdfSession(pdf_path)
+
 
 class _DefaultExtractBackend:
     """Delegates to module-level extract_images (patchable by tests)."""
@@ -83,6 +89,15 @@ class _DefaultRenderBackend:
         page_info: PageInfo,
     ) -> list[Path]:
         return render_page(pdf_path, page_num, output_prefix, dpi, page_info)
+
+    def render_batch(
+        self,
+        pdf_path: Path,
+        tasks: list[dict],
+    ) -> list[Path]:
+        from pdf_goon.extract import render_batch
+
+        return render_batch(pdf_path, tasks)
 
 
 def process_batch(
@@ -191,15 +206,63 @@ def process_single_pdf(
 
     logger.info("  Processing: %s (%d pages)", pdf_path.name, page_count)
 
-    # Process each page in parallel
-    page_results: list[PageResult] = []
-    completed_pages = 0
-    max_workers = min(32, os.cpu_count() or 1)
+    # Phase 1: Sequential Analysis Session (D7)
+    decisions: dict[int, tuple[PageDecision, list[ImageInfo], list[str], PageInfo]] = {}
+    session = None
+    if hasattr(_analyze, "open_session"):
+        try:
+            session = _analyze.open_session(pdf_path)
+        except Exception as e:
+            logger.warning("Could not open analysis session: %s", e)
+            session = None
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(
-                _process_page,
+    try:
+        for page in range(1, page_count + 1):
+            if session is not None:
+                images, mask_indices, has_text, page_info = session.inspect_page(page)
+            else:
+                images, mask_indices, has_text = _analyze.get_image_data(pdf_path, page)
+                page_info = _analyze.get_page_info(pdf_path, page)
+
+            decision = decide_processing_mode(
+                images,
+                page_info,
+                config.min_width,
+                config.dpi_text,
+                config.force_render,
+                has_text=has_text,
+                keep_blank=config.keep_blank,
+                margin_tolerance=config.margin_tolerance,
+            )
+            decisions[page] = (decision, images, mask_indices, page_info)
+    finally:
+        if session is not None:
+            session.close()
+
+    # Phase 2: Dispatched Execution (D8)
+    page_results: list[PageResult] = []
+    render_tasks: list[dict] = []
+    render_pages: list[int] = []
+    completed_pages = 0
+
+    for page in range(1, page_count + 1):
+        decision, images, mask_indices, page_info = decisions[page]
+
+        if decision.mode == ProcessingMode.BLANK:
+            logger.info("    Page %02d: %s", page, decision.reason)
+            logger.info("    Page %02d: Blank page, skipping", page)
+            page_results.append(
+                PageResult(
+                    page_num=page,
+                    mode=ProcessingMode.BLANK,
+                    files_produced=(),
+                )
+            )
+            completed_pages += 1
+            if not config.verbose:
+                _print_page_progress(completed_pages, page_count)
+        elif decision.mode == ProcessingMode.EXTRACT:
+            res = _process_page(
                 pdf_path,
                 page,
                 page_count,
@@ -209,17 +272,97 @@ def process_single_pdf(
                 _analyze,
                 _extract,
                 _render,
-            ): page
-            for page in range(1, page_count + 1)
-        }
-
-        for future in as_completed(futures):
-            page_results.append(future.result())
+                decision_info=decisions[page],
+            )
+            page_results.append(res)
             completed_pages += 1
             if not config.verbose:
                 _print_page_progress(completed_pages, page_count)
+        else:
+            # RENDER mode
+            render_prefix = workspace / f"render_{page}_tmp"
+            out_file = render_prefix.with_suffix(".png")
+            render_tasks.append(
+                {
+                    "page": page,
+                    "dpi": decision.dpi,
+                    "out": str(out_file),
+                }
+            )
+            render_pages.append(page)
 
-    # Sort results since as_completed yields them out of order
+    # Execute batch rendering if render tasks exist
+    if render_tasks:
+        if isinstance(_render, BatchRenderBackend) and len(render_tasks) > 1:
+            try:
+                _render.render_batch(pdf_path, render_tasks)
+                for page in render_pages:
+                    decision, images, mask_indices, page_info = decisions[page]
+                    logger.info("    Page %02d: %s", page, decision.reason)
+                    target_w = int((page_info.width_pts * decision.dpi) / 72.0)
+                    target_h = int((page_info.height_pts * decision.dpi) / 72.0)
+                    logger.info(
+                        "    Page %02d: Rendering @ %dx%d px ...",
+                        page,
+                        target_w,
+                        target_h,
+                    )
+                    render_prefix = workspace / f"render_{page}_tmp"
+                    out_file = render_prefix.with_suffix(".png")
+                    output_files = _finalize_page_files(
+                        [out_file], mask_indices, True, page, output_dir, config
+                    )
+                    page_results.append(
+                        PageResult(
+                            page_num=page,
+                            mode=ProcessingMode.RENDER,
+                            files_produced=tuple(output_files),
+                        )
+                    )
+                    completed_pages += 1
+                    if not config.verbose:
+                        _print_page_progress(completed_pages, page_count)
+            except Exception as exc:
+                logger.warning(
+                    "Batch render failed, falling back to per-page render: %s", exc
+                )
+                for page in render_pages:
+                    res = _process_page(
+                        pdf_path,
+                        page,
+                        page_count,
+                        workspace,
+                        output_dir,
+                        config,
+                        _analyze,
+                        _extract,
+                        _render,
+                        decision_info=decisions[page],
+                    )
+                    page_results.append(res)
+                    completed_pages += 1
+                    if not config.verbose:
+                        _print_page_progress(completed_pages, page_count)
+        else:
+            for page in render_pages:
+                res = _process_page(
+                    pdf_path,
+                    page,
+                    page_count,
+                    workspace,
+                    output_dir,
+                    config,
+                    _analyze,
+                    _extract,
+                    _render,
+                    decision_info=decisions[page],
+                )
+                page_results.append(res)
+                completed_pages += 1
+                if not config.verbose:
+                    _print_page_progress(completed_pages, page_count)
+
+    # Sort results to ensure strictly ascending order
     page_results.sort(key=lambda r: r.page_num)
 
     # Handle source PDF replacement
@@ -244,6 +387,10 @@ def _process_page(
     analyze_backend: AnalyzeBackend | None = None,
     extract_backend: ExtractBackend | None = None,
     render_backend: RenderBackend | None = None,
+    *,
+    decision_info: (
+        tuple[PageDecision, list[ImageInfo], list[str], PageInfo] | None
+    ) = None,
 ) -> PageResult:
     """Process a single page: analyze, extract/render, optimize, rename."""
     _analyze = analyze_backend or _DefaultAnalyzeBackend()
@@ -253,20 +400,24 @@ def _process_page(
     try:
         local_prefix = workspace / f"page_{page}_tmp"
 
-        # Analyze
-        images, mask_indices, has_text = _analyze.get_image_data(pdf_path, page)
-        page_info = _analyze.get_page_info(pdf_path, page)
+        if decision_info is not None:
+            decision, images, mask_indices, page_info = decision_info
+        else:
+            # Analyze
+            images, mask_indices, has_text = _analyze.get_image_data(pdf_path, page)
+            page_info = _analyze.get_page_info(pdf_path, page)
 
-        # Decide processing mode
-        decision = decide_processing_mode(
-            images,
-            page_info,
-            config.min_width,
-            config.dpi_text,
-            config.force_render,
-            has_text=has_text,
-            keep_blank=config.keep_blank,
-        )
+            # Decide processing mode
+            decision = decide_processing_mode(
+                images,
+                page_info,
+                config.min_width,
+                config.dpi_text,
+                config.force_render,
+                has_text=has_text,
+                keep_blank=config.keep_blank,
+                margin_tolerance=config.margin_tolerance,
+            )
 
         logger.info("    Page %02d: %s", page, decision.reason)
 

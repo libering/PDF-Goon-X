@@ -479,6 +479,7 @@ class TestProcessSinglePdf:
             result = process_single_pdf(pdf_file, workspace=tmp_path, config=config)
 
         assert result.success is False
+        assert result.error is not None
         assert "page count" in result.error.lower()
 
     def test_zero_pages_returns_failure(self, tmp_path: Path) -> None:
@@ -494,6 +495,7 @@ class TestProcessSinglePdf:
             result = process_single_pdf(pdf_file, workspace=tmp_path, config=config)
 
         assert result.success is False
+        assert result.error is not None
         assert "zero" in result.error.lower()
 
     def test_successful_processing_with_mocked_pipeline(self, tmp_path: Path) -> None:
@@ -718,6 +720,7 @@ class TestProcessBatch:
         # Both files get results — first failed, second succeeded
         assert len(results) == 2
         assert results[0].success is False
+        assert results[0].error is not None
         assert "unexpected" in results[0].error.lower()
         assert results[1].success is True
 

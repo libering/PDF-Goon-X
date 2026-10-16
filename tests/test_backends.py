@@ -7,11 +7,14 @@ from unittest.mock import patch
 
 from pdf_goon.backends import (
     AnalyzeBackend,
+    BatchRenderBackend,
     ExtractBackend,
+    PdfAnalyzeSession,
     PypdfAnalyzeBackend,
     PypdfExtractBackend,
     Pypdfium2RenderBackend,
     RenderBackend,
+    SessionAnalyzeBackend,
 )
 from pdf_goon.core import process_batch
 from pdf_goon.models import Config, ImageInfo, PageInfo, make_config
@@ -261,3 +264,18 @@ def test_process_batch_defaults_when_no_backend_given(tmp_path: Path) -> None:
     default_fn.assert_called_once()
     assert len(results) == 1
     assert results[0].success is False
+
+
+def test_session_analyze_backend_protocol() -> None:
+    """PypdfAnalyzeBackend structurally satisfies SessionAnalyzeBackend."""
+    backend = PypdfAnalyzeBackend()
+    assert isinstance(backend, SessionAnalyzeBackend)
+    assert hasattr(backend, "open_session")
+    assert hasattr(PdfAnalyzeSession, "inspect_page")
+
+
+def test_batch_render_backend_protocol() -> None:
+    """Pypdfium2RenderBackend structurally satisfies BatchRenderBackend."""
+    backend = Pypdfium2RenderBackend()
+    assert isinstance(backend, BatchRenderBackend)
+    assert hasattr(backend, "render_batch")
