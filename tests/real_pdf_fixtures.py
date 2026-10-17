@@ -750,3 +750,55 @@ def make_light_novel_complete_volume_pdf(path: Path) -> Path:
     with open(path, "wb") as f:
         writer.write(f)
     return path
+
+
+def make_image_with_smask_pdf(path: Path) -> Path:
+    """Page with an image that has an attached /SMask (soft mask for transparency).
+
+    Must be decided as EXTRACT (full-page image), NEVER BLANK!
+    Verifies regression fix where /SMask presence incorrectly marked image as mask.
+    """
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=600, height=800)
+    jpg_bytes = _make_jpeg_bytes(1200, 1600)
+    smask_bytes = _make_1bit_bytes(1200, 1600)
+
+    # Auxiliary SMask object
+    smask_obj = DecodedStreamObject()
+    smask_obj.set_data(smask_bytes)
+    smask_obj[NameObject("/Type")] = NameObject("/XObject")
+    smask_obj[NameObject("/Subtype")] = NameObject("/Image")
+    smask_obj[NameObject("/Width")] = NumberObject(1200)
+    smask_obj[NameObject("/Height")] = NumberObject(1600)
+    smask_obj[NameObject("/ColorSpace")] = NameObject("/DeviceGray")
+    smask_obj[NameObject("/BitsPerComponent")] = NumberObject(1)
+    smask_obj[NameObject("/Filter")] = NameObject("/FlateDecode")
+    smask_ref = writer._add_object(smask_obj)
+
+    # Parent image with /SMask
+    img_obj = DecodedStreamObject()
+    img_obj.set_data(jpg_bytes)
+    img_obj[NameObject("/Type")] = NameObject("/XObject")
+    img_obj[NameObject("/Subtype")] = NameObject("/Image")
+    img_obj[NameObject("/Width")] = NumberObject(1200)
+    img_obj[NameObject("/Height")] = NumberObject(1600)
+    img_obj[NameObject("/ColorSpace")] = NameObject("/DeviceRGB")
+    img_obj[NameObject("/BitsPerComponent")] = NumberObject(8)
+    img_obj[NameObject("/Filter")] = NameObject("/DCTDecode")
+    img_obj[NameObject("/SMask")] = smask_ref
+    img_ref = writer._add_object(img_obj)
+
+    res = DictionaryObject()
+    xobjs = DictionaryObject()
+    xobjs[NameObject("/Im0")] = img_ref
+    res[NameObject("/XObject")] = xobjs
+    page[NameObject("/Resources")] = res
+
+    cs = DecodedStreamObject()
+    cs.set_data(b"q 600 0 0 800 0 0 cm /Im0 Do Q")
+    page[NameObject("/Contents")] = writer._add_object(cs)
+
+    with open(path, "wb") as f:
+        writer.write(f)
+    return path
+

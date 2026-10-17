@@ -58,17 +58,26 @@ def test_prop4_non_mask_dict_is_never_mask(d: dict, bpc: int) -> None:
 
 @settings(max_examples=50)
 @given(
-    mask_key=st.sampled_from(["/ImageMask", "/SMask", "/Mask"]),
+    mask_val=st.booleans(),
     d=st.dictionaries(keys=non_mask_keys, values=st.integers(), max_size=5),
 )
-def test_prop4_mask_dict_is_always_mask(mask_key: str, d: dict) -> None:
-    """Property 4b: Any XObject dictionary with mask keys is recognized as a mask."""
+def test_prop4_mask_dict_is_stencil_mask(mask_val: bool, d: dict) -> None:
+    """Property 4b: Only an XObject dictionary with /ImageMask True is recognized as a mask."""
     xobj = dict(d)
-    if mask_key == "/ImageMask":
-        xobj[mask_key] = True
-    else:
-        xobj[mask_key] = {}
-    assert is_true_pdf_mask(xobj) is True
+    xobj["/ImageMask"] = mask_val
+    assert is_true_pdf_mask(xobj) is (mask_val is True)
+
+
+@settings(max_examples=50)
+@given(
+    mask_key=st.sampled_from(["/SMask", "/Mask"]),
+    d=st.dictionaries(keys=non_mask_keys, values=st.integers(), max_size=5),
+)
+def test_prop4_attached_mask_is_not_stencil_mask(mask_key: str, d: dict) -> None:
+    """Property 4c: Parent images with attached /SMask or /Mask are not treated as stencil masks."""
+    xobj = dict(d)
+    xobj[mask_key] = {}
+    assert is_true_pdf_mask(xobj) is False
 
 
 @settings(max_examples=100)
@@ -81,7 +90,7 @@ def test_prop4_mask_dict_is_always_mask(mask_key: str, d: dict) -> None:
 def test_prop4_1bit_page_never_decides_blank(
     img_w: int, img_h: int, page_w: float, page_h: float
 ) -> None:
-    """Property 4c: A page with a single 1-bit content image and no text is never BLANK."""
+    """Property 4d: A page with a single 1-bit content image and no text is never BLANK."""
     images = [
         ImageInfo(
             width=img_w,
@@ -101,3 +110,25 @@ def test_prop4_1bit_page_never_decides_blank(
     # Never classified as BLANK
     assert decision.mode in (ProcessingMode.EXTRACT, ProcessingMode.RENDER)
     assert decision.mode != ProcessingMode.BLANK
+
+
+def test_prop4_mask_only_page_renders_never_blank() -> None:
+    """Property 4e: A page with only mask images and no text renders instead of dropping as BLANK."""
+    images = [
+        ImageInfo(
+            width=1000,
+            height=1000,
+            color="1",
+            is_mask=True,
+        )
+    ]
+    page_info = PageInfo(width_pts=595.0, height_pts=842.0)
+    decision = decide_processing_mode(
+        images=images,
+        page_info=page_info,
+        min_width=100,
+        dpi_text=300,
+        force_render=False,
+    )
+    assert decision.mode == ProcessingMode.RENDER
+    assert "mask images" in decision.reason

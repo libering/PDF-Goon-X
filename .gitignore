@@ -10,6 +10,7 @@ build/
 
 # Test corpus (local binary PDFs)
 real_test_pdfs/
+*.pdf
 
 # Virtual environment
 .venv/

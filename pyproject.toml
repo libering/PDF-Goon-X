@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pdf-goon"
-version = "1.0.0"
+version = "1.0.1"
 description = "Extract and render images from PDF files with smart per-page decision logic"
 requires-python = ">=3.11"
 license = "MIT"
@@ -33,3 +33,9 @@ dev = [
 [[tool.mypy.overrides]]
 module = "pypdfium2"
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+markers = [
+    "corpus: Heavy real-world PDF corpus integration tests (run with -m corpus)",
+]
+addopts = "-m 'not corpus'"

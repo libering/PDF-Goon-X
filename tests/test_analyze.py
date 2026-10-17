@@ -334,10 +334,10 @@ def test_get_image_data_parses_normal_images() -> None:
 
 
 def test_is_true_pdf_mask() -> None:
-    """is_true_pdf_mask identifies masks only by ISO 32000-1 dictionary keys."""
     assert is_true_pdf_mask({"/ImageMask": True}) is True
-    assert is_true_pdf_mask({"/SMask": {}}) is True
-    assert is_true_pdf_mask({"/Mask": [0, 0]}) is True
+    # Attached soft masks (/SMask) or chroma key masks (/Mask) do not make the parent image a mask
+    assert is_true_pdf_mask({"/SMask": {}}) is False
+    assert is_true_pdf_mask({"/Mask": [0, 0]}) is False
     # 1-bit image without mask keys is NOT a mask
     assert is_true_pdf_mask({"/BitsPerComponent": 1, "/Width": 1000}) is False
     assert is_true_pdf_mask({}) is False

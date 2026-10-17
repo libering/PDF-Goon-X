@@ -34,21 +34,19 @@ def get_page_count(pdf_path: Path) -> int | None:
 
 
 def is_true_pdf_mask(xobj_dict: object) -> bool:
-    """Return True if image XObject dictionary specifies a PDF mask according to ISO 32000-1.
+    """Return True if image XObject dictionary specifies a stencil mask according to ISO 32000-1.
 
     Checks:
-    - /ImageMask is True (stencil mask)
-    - /SMask is present (soft mask / alpha transparency)
-    - /Mask is present (explicit or color-key mask)
+    - /ImageMask is True (1-bit stencil mask)
+
+    Note:
+    - /SMask and /Mask indicate attached transparency masks on a parent image;
+      the parent image itself is NOT a mask and must not be discarded.
     """
     if not isinstance(xobj_dict, Mapping):
         return False
     try:
         if xobj_dict.get("/ImageMask") is True:
-            return True
-        if "/SMask" in xobj_dict:
-            return True
-        if "/Mask" in xobj_dict:
             return True
     except Exception:
         return False
@@ -386,8 +384,17 @@ def decide_processing_mode(
 
     non_mask_images = [img for img in images if not img.is_mask]
 
-    # 2. Blank page (no images, no text)
-    if not non_mask_images and not has_text:
+    # 2. Page has mask images only (no non-mask images, no text)
+    if not non_mask_images and images and not has_text:
+        dpi = _clamp_dpi(float(dpi_text))
+        return PageDecision(
+            mode=ProcessingMode.RENDER,
+            dpi=dpi,
+            reason="Page contains only mask images, rendering to preserve visual content",
+        )
+
+    # 3. Blank page (no images, no text)
+    if not images and not has_text:
         if keep_blank:
             dpi = _clamp_dpi(float(dpi_text))
             return PageDecision(

@@ -20,6 +20,7 @@ from pdf_goon.models import Config
 from tests.real_pdf_fixtures import (
     make_blank_pdf,
     make_full_page_manga_pdf,
+    make_image_with_smask_pdf,
     make_large_margin_15pt_pdf,
     make_light_novel_complete_volume_pdf,
     make_monochrome_1bit_pdf,
@@ -440,3 +441,67 @@ def test_real_downloaded_multicolumn_text(workspace: Path, base_config: Config) 
     out_dir = pdf_path.parent / pdf_path.stem
     files = list(out_dir.glob("*.png"))
     assert len(files) == 3
+
+
+def test_real_image_with_smask_extract(
+    tmp_path: Path, workspace: Path, base_config: Config
+) -> None:
+    """Verifies that an image with an attached /SMask is extracted losslessly, never BLANK."""
+    pdf_path = tmp_path / "smask_manga.pdf"
+    make_image_with_smask_pdf(pdf_path)
+
+    result = process_single_pdf(pdf_path, workspace, base_config)
+    assert result.success is True
+    assert result.pages_processed == 1
+
+    out_dir = pdf_path.parent / pdf_path.stem
+    files = list(out_dir.glob("*"))
+    assert len(files) == 1
+    assert files[0].name == "001.png"
+    assert files[0].stat().st_size > 0
+
+
+@pytest.mark.corpus
+def test_real_corpus_egihid_extract(workspace: Path, base_config: Config) -> None:
+    """Regression test: egihid.pdf must extract all pages without dropping any as BLANK."""
+    candidates = [
+        Path(r"C:\Users\user\Downloads\Documents\egihid.pdf"),
+        Path("real_test_pdfs/egihid.pdf"),
+    ]
+    pdf_path = next((p for p in candidates if p.exists()), None)
+    if pdf_path is None:
+        pytest.skip("egihid.pdf not found in local environment")
+
+    result = process_single_pdf(pdf_path, workspace, base_config)
+    assert result.success is True
+    assert result.pages_processed == 128
+
+    out_dir = pdf_path.parent / pdf_path.stem
+    files = sorted(list(out_dir.glob("*")))
+    assert len(files) == 128
+    assert files[0].name == "001.png"
+    assert files[1].name == "002.png"
+
+
+@pytest.mark.corpus
+def test_real_corpus_comic3_spread_alignment(workspace: Path, base_config: Config) -> None:
+    """Verifies comic3.pdf maintains 22/22 page continuity and extracts pure-white page 2."""
+    candidates = [
+        Path(r"C:\Users\user\Downloads\Documents\コミック3.pdf"),
+        Path("real_test_pdfs/コミック3.pdf"),
+    ]
+    pdf_path = next((p for p in candidates if p.exists()), None)
+    if pdf_path is None:
+        pytest.skip("コミック3.pdf not found in local environment")
+
+    result = process_single_pdf(pdf_path, workspace, base_config)
+    assert result.success is True
+    assert result.pages_processed == 22
+
+    out_dir = pdf_path.parent / pdf_path.stem
+    files = sorted(list(out_dir.glob("*")))
+    assert len(files) == 22
+    assert files[0].name == "001.png"
+    assert files[1].name == "002.png"
+    assert files[-1].name == "022.png"
+
