@@ -20,8 +20,10 @@ from pathlib import Path
 from PIL import Image
 from pypdf import PdfWriter
 from pypdf.generic import (
+    ArrayObject,
     DecodedStreamObject,
     DictionaryObject,
+    FloatObject,
     IndirectObject,
     NameObject,
     NumberObject,
@@ -801,4 +803,52 @@ def make_image_with_smask_pdf(path: Path) -> Path:
     with open(path, "wb") as f:
         writer.write(f)
     return path
+
+
+def make_form_xobject_text_pdf(path: Path) -> Path:
+    """Page with text nested inside a Form XObject invoked via 'Do'.
+
+    Must be decided as RENDER (text-only page), NEVER BLANK!
+    Verifies regression fix where nested Form XObjects were ignored by ContentStream analysis.
+    """
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=600, height=800)
+
+    # Form XObject stream
+    form_obj = DecodedStreamObject()
+    form_obj.set_data(b"BT /F1 12 Tf 50 700 Td (Novel text inside Form XObject) Tj ET")
+    form_obj[NameObject("/Type")] = NameObject("/XObject")
+    form_obj[NameObject("/Subtype")] = NameObject("/Form")
+    form_obj[NameObject("/BBox")] = ArrayObject(
+        [FloatObject(0), FloatObject(0), FloatObject(600), FloatObject(800)]
+    )
+
+    form_res = DictionaryObject()
+    form_fonts = DictionaryObject()
+    f1 = DictionaryObject()
+    f1[NameObject("/Type")] = NameObject("/Font")
+    f1[NameObject("/Subtype")] = NameObject("/Type1")
+    f1[NameObject("/BaseFont")] = NameObject("/Helvetica")
+    form_fonts[NameObject("/F1")] = f1
+    form_res[NameObject("/Font")] = form_fonts
+    form_obj[NameObject("/Resources")] = form_res
+
+    form_ref = writer._add_object(form_obj)
+
+    # Page resources referencing the Form XObject
+    page_res = DictionaryObject()
+    xobjs = DictionaryObject()
+    xobjs[NameObject("/Xf1")] = form_ref
+    page_res[NameObject("/XObject")] = xobjs
+    page[NameObject("/Resources")] = page_res
+
+    # Page content stream invokes /Xf1 via Do
+    cs = DecodedStreamObject()
+    cs.set_data(b"q /Xf1 Do Q")
+    page[NameObject("/Contents")] = writer._add_object(cs)
+
+    with open(path, "wb") as f:
+        writer.write(f)
+    return path
+
 

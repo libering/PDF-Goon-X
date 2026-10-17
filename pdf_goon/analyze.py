@@ -59,6 +59,9 @@ TEXT_SHOW_OPS: set[bytes] = {b"Tj", b"TJ", b"'", b'"'}
 def analyze_page_text_layers(page: object, reader: object = None) -> tuple[bool, bool]:
     """Inspect page ContentStream operations for visible and invisible (OCR) text.
 
+    Supports top-level ContentStreams as well as nested Form XObjects invoked by 'Do'.
+    Falls back to page.extract_text() if streams contain no text operators.
+
     Returns:
         (has_visible_text, has_invisible_ocr_text)
     """
@@ -75,14 +78,27 @@ def analyze_page_text_layers(page: object, reader: object = None) -> tuple[bool,
         except Exception:
             contents = None
 
-    if contents is not None:
+    resources = None
+    if hasattr(page, "get"):
+        try:
+            resources = page.get("/Resources")
+            if hasattr(resources, "get_object"):
+                resources = resources.get_object()
+        except Exception:
+            resources = None
+
+    def _inspect_stream(
+        stream_obj: object, res_dict: object, depth: int = 0
+    ) -> tuple[bool, bool]:
+        if depth > 3 or stream_obj is None:
+            return False, False
         try:
             from pypdf.generic import ContentStream
 
-            cs = ContentStream(contents, reader)
+            cs = ContentStream(stream_obj, reader)
             current_tr = 0
-            has_visible = False
-            has_invisible = False
+            has_vis = False
+            has_invis = False
 
             for args, op in cs.operations:
                 if op == b"Tr" and args:
@@ -92,24 +108,56 @@ def analyze_page_text_layers(page: object, reader: object = None) -> tuple[bool,
                         current_tr = 0
                 elif op in TEXT_SHOW_OPS:
                     if current_tr == 3:
-                        has_invisible = True
+                        has_invis = True
                     else:
-                        has_visible = True
+                        has_vis = True
+                elif op == b"Do" and args and isinstance(res_dict, Mapping):
+                    try:
+                        xobj_name = args[0]
+                        xobjs = res_dict.get("/XObject", {})
+                        if hasattr(xobjs, "get_object"):
+                            xobjs = xobjs.get_object()
+                        if isinstance(xobjs, Mapping):
+                            target = xobjs.get(xobj_name)
+                            if hasattr(target, "get_object"):
+                                target = target.get_object()
+                            if (
+                                isinstance(target, Mapping)
+                                and target.get("/Subtype") == "/Form"
+                            ):
+                                form_res = target.get("/Resources", res_dict)
+                                if hasattr(form_res, "get_object"):
+                                    form_res = form_res.get_object()
+                                sub_vis, sub_invis = _inspect_stream(
+                                    target, form_res, depth + 1
+                                )
+                                if sub_vis:
+                                    has_vis = True
+                                if sub_invis:
+                                    has_invis = True
+                    except Exception:
+                        pass
 
-            return has_visible, has_invisible
+            return has_vis, has_invis
         except Exception:
-            pass
+            return False, False
 
-    # Fallback to extract_text() if ContentStream parsing is unavailable or fails
-    if hasattr(page, "extract_text"):
+    has_visible = False
+    has_invisible = False
+
+    if contents is not None:
+        has_visible, has_invisible = _inspect_stream(contents, resources)
+
+    # Fallback to extract_text() if stream parsing found no text
+    if not has_visible and not has_invisible and hasattr(page, "extract_text"):
         try:
             extracted = page.extract_text()
-            if isinstance(extracted, str):
-                return bool(extracted.strip()), False
+            if isinstance(extracted, str) and bool(extracted.strip()):
+                return True, False
         except Exception:
             pass
 
-    return False, False
+    return has_visible, has_invisible
 
 
 def get_image_data(
