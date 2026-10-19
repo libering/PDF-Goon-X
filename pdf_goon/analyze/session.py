@@ -70,7 +70,7 @@ class PypdfSession:
             raise
 
     def _extract_geometry_info(
-        self, page_num: int, page: object
+        self, page_num: int, page: Any
     ) -> tuple[PageInfo, list[Any], bool]:
         """Extract page dimension, image bboxes, and rotation status."""
         try:
@@ -95,7 +95,7 @@ class PypdfSession:
         return PageInfo(width_pts=page_w, height_pts=page_h), image_bboxes, has_rotation
 
     def _extract_page_images(
-        self, page: object, image_bboxes: list[Any], has_rotation: bool
+        self, page: Any, image_bboxes: list[Any], has_rotation: bool
     ) -> tuple[list[ImageInfo], list[str]]:
         """Extract ImageInfo list and mask indices from page.images."""
         images: list[ImageInfo] = []

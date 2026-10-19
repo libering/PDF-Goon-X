@@ -31,7 +31,7 @@ dev = [
 
 [tool.mypy]
 [[tool.mypy.overrides]]
-module = "pypdfium2"
+module = ["pypdfium2", "pypdfium2.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

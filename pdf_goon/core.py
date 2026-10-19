@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from pathlib import Path
 
 # Module-level imports preserved for test mock compatibility (patch("pdf_goon.core.<fn>"))

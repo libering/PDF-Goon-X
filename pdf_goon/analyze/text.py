@@ -56,7 +56,7 @@ def _inspect_stream_ops(
                     xobjs = xobjs.get_object()
                 if isinstance(xobjs, Mapping):
                     target = xobjs.get(args[0])
-                    if hasattr(target, "get_object"):
+                    if target is not None and hasattr(target, "get_object"):
                         target = target.get_object()
                     sub_vis, sub_invis = _inspect_form_xobject(
                         target, res_dict, depth, inspect_fn

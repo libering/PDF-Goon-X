@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import ast
 import pathlib
-import pytest
 
 MAX_FILE_LINES = 500
 MAX_FUNC_LINES = 50
@@ -27,7 +26,7 @@ def test_all_files_line_limits() -> None:
                 f"{py_file.relative_to(PKG_DIR)} has {len(lines)} lines (exceeds {MAX_FILE_LINES})"
             )
 
-    assert not violations, f"File line limit violations:\n" + "\n".join(violations)
+    assert not violations, "File line limit violations:\n" + "\n".join(violations)
 
 
 def test_all_functions_line_limits() -> None:
@@ -44,4 +43,4 @@ def test_all_functions_line_limits() -> None:
                         f"{py_file.relative_to(PKG_DIR)}:{node.name} has {func_len} lines (exceeds {MAX_FUNC_LINES})"
                     )
 
-    assert not violations, f"Universal function line limit violations:\n" + "\n".join(violations)
+    assert not violations, "Universal function line limit violations:\n" + "\n".join(violations)
