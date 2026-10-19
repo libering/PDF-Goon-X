@@ -34,27 +34,26 @@ def run_batch_render(pdf_path: Path, tasks: list[dict]) -> None:
         sys.exit(1)
 
 
-def main(argv: list[str] | None = None) -> None:
-    """Entry point: parse args, render page(s), write PNG."""
-    args = sys.argv[1:] if argv is None else argv
+def _handle_batch_worker(args: list[str]) -> None:
+    """Parse tasks and execute batch render mode."""
+    try:
+        pdf_path = Path(args[1])
+        tasks_arg = args[2]
+        p = Path(tasks_arg)
+        if p.exists():
+            with open(p, "r", encoding="utf-8") as f:
+                tasks = json.load(f)
+        else:
+            tasks = json.loads(tasks_arg)
+        run_batch_render(pdf_path, tasks)
+    except Exception as exc:
+        sys.stderr.write(f"Batch render error: {exc}\n")
+        sys.exit(1)
+    sys.exit(0)
 
-    # Batch mode: --batch <pdf_path> <tasks_json_file_or_string>
-    if len(args) == 3 and args[0] == "--batch":
-        try:
-            pdf_path = Path(args[1])
-            tasks_arg = args[2]
-            p = Path(tasks_arg)
-            if p.exists():
-                with open(p, "r", encoding="utf-8") as f:
-                    tasks = json.load(f)
-            else:
-                tasks = json.loads(tasks_arg)
-            run_batch_render(pdf_path, tasks)
-        except Exception as exc:
-            sys.stderr.write(f"Batch render error: {exc}\n")
-            sys.exit(1)
-        sys.exit(0)
 
+def _handle_single_page_worker(args: list[str]) -> None:
+    """Parse args and execute single page render."""
     if len(args) != 4:
         sys.stderr.write(
             "Usage: _render_worker <pdf_path> <page_num> <dpi> <output_path>\n"
@@ -73,7 +72,6 @@ def main(argv: list[str] | None = None) -> None:
     try:
         import pypdfium2 as pdfium
 
-        # Read bytes from disk to avoid Windows file lock sharing issues
         pdf_bytes = pdf_path.read_bytes()
         pdf = pdfium.PdfDocument(pdf_bytes)
         try:
@@ -87,6 +85,15 @@ def main(argv: list[str] | None = None) -> None:
     except Exception as exc:
         sys.stderr.write(f"Render error: {exc}\n")
         sys.exit(1)
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Entry point: parse args, render page(s), write PNG."""
+    args = sys.argv[1:] if argv is None else argv
+    if len(args) == 3 and args[0] == "--batch":
+        _handle_batch_worker(args)
+    else:
+        _handle_single_page_worker(args)
 
 
 if __name__ == "__main__":

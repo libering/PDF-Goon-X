@@ -15,12 +15,8 @@ DESCRIPTION = (
 )
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    """Construct the argument parser with v1.0.1-compatible flags."""
-    parser = argparse.ArgumentParser(
-        description=DESCRIPTION,
-        epilog=f"Version {VERSION} | Credits: Uses pypdf, pypdfium2, and Pingo.exe. | Author: Dnkz",
-    )
+def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add core processing CLI arguments."""
     parser.add_argument(
         "path",
         nargs="?",
@@ -65,6 +61,10 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="optimize",
         help="Disable lossless image optimization",
     )
+
+
+def _add_diagnostic_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add debugging, tuning, and diagnostic CLI arguments."""
     parser.add_argument(
         "--debug",
         action="store_true",
@@ -100,30 +100,31 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help="Write diagnostic logs to specified file (default: pdf_goon_debug.log)",
     )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Construct the argument parser with v1.0.1-compatible flags."""
+    parser = argparse.ArgumentParser(
+        description=DESCRIPTION,
+        epilog=f"Version {VERSION} | Credits: Uses pypdf, pypdfium2, and Pingo.exe. | Author: Dnkz",
+    )
+    _add_core_arguments(parser)
+    _add_diagnostic_arguments(parser)
     parser.set_defaults(optimize=True)
     return parser
 
 
-def main() -> None:
-    """Parse CLI arguments, call process(), print results, exit."""
-    # Internal render worker dispatch (supports PyInstaller frozen binary)
+def _check_internal_render_worker() -> None:
+    """Internal render worker dispatch (supports PyInstaller frozen binary)."""
     if len(sys.argv) > 1 and sys.argv[1] == "--_render_worker":
         from pdf_goon._render_worker import main as worker_main
 
         worker_main(sys.argv[2:])
         sys.exit(0)
 
-    # Banner
-    print("=" * 60)
-    print(f"PDF-Goon v{VERSION}")
-    print(DESCRIPTION)
-    print("=" * 60)
 
-    # Parse
-    parser = _build_parser()
-    args = parser.parse_args()
-
-    # Configure logging: diagnostic output goes to stderr and optional log file
+def _setup_cli_logging(args: argparse.Namespace) -> None:
+    """Configure console and optional file logging handlers."""
     log_level = (
         logging.DEBUG
         if args.debug
@@ -141,12 +142,7 @@ def main() -> None:
         except Exception as e:
             sys.stderr.write(f"Warning: Could not open log file {log_file}: {e}\n")
 
-    logging.basicConfig(
-        level=log_level,
-        format="%(message)s",
-        handlers=handlers,
-        force=True,
-    )
+    logging.basicConfig(level=log_level, format="%(message)s", handlers=handlers, force=True)
 
     if args.debug:
         import platform
@@ -160,7 +156,13 @@ def main() -> None:
         logger.debug("CLI Arguments: %s", sys.argv)
         logger.debug("==================================")
 
-    # Configuration summary
+
+def _print_banner_and_summary(args: argparse.Namespace) -> None:
+    """Print welcome banner and configuration summary block."""
+    print("=" * 60)
+    print(f"PDF-Goon v{VERSION}")
+    print(DESCRIPTION)
+    print("=" * 60)
     print(
         f"Configuration => Path: '{args.path}' "
         f"| Recursive (include subdirectories): {args.include_subdirectories} "
@@ -171,8 +173,9 @@ def main() -> None:
     )
     print("=" * 60)
 
-    # Delegate to public API and handle errors
-    exit_code = 0
+
+def _execute_process(args: argparse.Namespace) -> int:
+    """Execute main processing logic and capture standard error codes."""
     try:
         pdf_goon.process(
             path=args.path,
@@ -187,28 +190,40 @@ def main() -> None:
             keep_blank=args.keep_blank,
             margin_tolerance=args.margin_tolerance,
         )
+        print("All Done.")
+        return 0
     except PdfGoonError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         if args.debug:
             import traceback
 
             traceback.print_exc(file=sys.stderr)
-        exit_code = 1
+        return 1
     except Exception as exc:
         print(f"Unexpected error: {exc}", file=sys.stderr)
         if args.debug:
             import traceback
 
             traceback.print_exc(file=sys.stderr)
-        exit_code = 2
-    else:
-        print("All Done.")
-    finally:
-        if args.pause:
-            try:
-                input("\n[Debug] 請按 Enter 鍵結束程式 (Press Enter to exit)...")
-            except (EOFError, KeyboardInterrupt):
-                pass
+        return 2
+
+
+def main() -> None:
+    """Parse CLI arguments, call process(), print results, exit."""
+    _check_internal_render_worker()
+
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    _setup_cli_logging(args)
+    _print_banner_and_summary(args)
+    exit_code = _execute_process(args)
+
+    if args.pause:
+        try:
+            input("\n[Debug] 請按 Enter 鍵結束程式 (Press Enter to exit)...")
+        except (EOFError, KeyboardInterrupt):
+            pass
 
     sys.exit(exit_code)
 

@@ -1,8 +1,8 @@
 """Architecture and code constraint tests.
 
-Enforces across refactored modules in pdf_goon:
-1. Universal: Single file length <= 500 lines across the entire codebase.
-2. Refactored architecture: Single function length <= 50 lines in analyze, pipeline, and core.
+Enforces across ALL modules in pdf_goon with ZERO EXEMPTION:
+1. Single file length <= 500 lines across the entire codebase.
+2. Single function length <= 50 lines across the entire codebase.
 """
 
 from __future__ import annotations
@@ -30,17 +30,10 @@ def test_all_files_line_limits() -> None:
     assert not violations, f"File line limit violations:\n" + "\n".join(violations)
 
 
-def test_core_architecture_function_line_limits() -> None:
-    """Verify NO function in analyze, pipeline, or core exceeds MAX_FUNC_LINES (50 lines)."""
+def test_all_functions_line_limits() -> None:
+    """Verify NO function or method anywhere in pdf_goon exceeds MAX_FUNC_LINES (50 lines)."""
     violations = []
-    target_dirs = [PKG_DIR / "analyze", PKG_DIR / "pipeline"]
-    target_files = [PKG_DIR / "core.py"]
-
-    py_files = target_files.copy()
-    for d in target_dirs:
-        py_files.extend(d.glob("*.py"))
-
-    for py_file in py_files:
+    for py_file in PKG_DIR.rglob("*.py"):
         source = py_file.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(py_file))
         for node in ast.walk(tree):
@@ -51,4 +44,4 @@ def test_core_architecture_function_line_limits() -> None:
                         f"{py_file.relative_to(PKG_DIR)}:{node.name} has {func_len} lines (exceeds {MAX_FUNC_LINES})"
                     )
 
-    assert not violations, f"Function line limit violations:\n" + "\n".join(violations)
+    assert not violations, f"Universal function line limit violations:\n" + "\n".join(violations)
