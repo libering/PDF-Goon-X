@@ -190,6 +190,16 @@ def _execute_render_phase(
     return results
 
 
+def _open_extract_session(extract_backend: Any, pdf_path: Path) -> Any:
+    """Attempt opening a sequential extraction session."""
+    if hasattr(extract_backend, "open_session"):
+        try:
+            return extract_backend.open_session(pdf_path)
+        except Exception as e:
+            logger.warning("Could not open extraction session: %s", e)
+    return None
+
+
 def _process_immediate_pages(
     pdf_path: Path,
     page_count: int,
@@ -207,27 +217,37 @@ def _process_immediate_pages(
     render_pages: list[int] = []
     completed_pages = 0
 
-    for page in range(1, page_count + 1):
-        decision, _, _, _ = decisions[page]
-        if decision.mode == ProcessingMode.BLANK:
-            logger.info("    Page %02d: %s\n    Page %02d: Blank page, skipping", page, decision.reason, page)
-            page_results.append(PageResult(page_num=page, mode=ProcessingMode.BLANK, files_produced=()))
-            completed_pages += 1
-        elif decision.mode == ProcessingMode.EXTRACT:
-            res = _process_page(
-                pdf_path, page, page_count, workspace, output_dir, config,
-                analyze_backend, extract_backend, render_backend, decision_info=decisions[page],
-            )
-            page_results.append(res)
-            completed_pages += 1
-        else:
-            out_file = (workspace / f"render_{page}_tmp").with_suffix(".png")
-            render_tasks.append({"page": page, "dpi": decision.dpi, "out": str(out_file)})
-            render_pages.append(page)
-            continue
+    extract_session = _open_extract_session(extract_backend, pdf_path)
+    try:
+        for page in range(1, page_count + 1):
+            decision, _, _, _ = decisions[page]
+            if decision.mode == ProcessingMode.BLANK:
+                logger.info("    Page %02d: %s\n    Page %02d: Blank page, skipping", page, decision.reason, page)
+                page_results.append(PageResult(page_num=page, mode=ProcessingMode.BLANK, files_produced=()))
+                completed_pages += 1
+            elif decision.mode == ProcessingMode.EXTRACT:
+                res = _process_page(
+                    pdf_path, page, page_count, workspace, output_dir, config,
+                    analyze_backend, extract_backend, render_backend,
+                    decision_info=decisions[page],
+                    extract_session=extract_session,
+                )
+                page_results.append(res)
+                completed_pages += 1
+            else:
+                out_file = (workspace / f"render_{page}_tmp").with_suffix(".png")
+                render_tasks.append({"page": page, "dpi": decision.dpi, "out": str(out_file)})
+                render_pages.append(page)
+                continue
 
-        if not config.verbose:
-            _print_page_progress(completed_pages, page_count)
+            if not config.verbose:
+                _print_page_progress(completed_pages, page_count)
+    finally:
+        if extract_session is not None and hasattr(extract_session, "close"):
+            try:
+                extract_session.close()
+            except Exception:
+                pass
 
     return page_results, render_tasks, render_pages, completed_pages
 

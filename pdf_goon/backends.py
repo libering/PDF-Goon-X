@@ -54,6 +54,26 @@ class ExtractBackend(Protocol):
 
 
 @runtime_checkable
+class PdfExtractSession(Protocol):
+    """Protocol for an active PDF extraction session."""
+
+    def extract_images(
+        self,
+        page_num: int,
+        output_prefix: Path,
+    ) -> list[Path]: ...
+
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class SessionExtractBackend(ExtractBackend, Protocol):
+    """Protocol for extraction backends supporting sequential session extraction."""
+
+    def open_session(self, pdf_path: Path) -> PdfExtractSession: ...
+
+
+@runtime_checkable
 class RenderBackend(Protocol):
     """Protocol for PDF page rendering."""
 
@@ -121,6 +141,11 @@ class PypdfExtractBackend:
         from pdf_goon.extract import extract_images
 
         return extract_images(pdf_path, page_num, output_prefix)
+
+    def open_session(self, pdf_path: Path) -> PdfExtractSession:
+        from pdf_goon.extract import PypdfExtractSession
+
+        return PypdfExtractSession(pdf_path)
 
 
 class Pypdfium2RenderBackend:

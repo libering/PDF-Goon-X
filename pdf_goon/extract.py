@@ -4,15 +4,69 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from pdf_goon.models import PageInfo
 from pdf_goon.tools import run_command
+
+
+def _save_extracted_image(
+    img_file: Any,
+    img_idx: int,
+    page_num: int,
+    output_prefix: Path,
+) -> Path:
+    """Save a single embedded image file with format resolution and memory cleanup."""
+    suffix = Path(img_file.name).suffix.lower()
+    if suffix == ".jpeg":
+        suffix = ".jpg"
+    if suffix not in (".png", ".jpg"):
+        suffix = ".png"
+
+    out_path = output_prefix.parent / f"{output_prefix.name}-{img_idx:03d}{suffix}"
+
+    # pypdf's img_file.data for JPEGs is valid DCTDecode bytes.
+    # For FlateDecode (PNG), save using PIL to guarantee valid PNG headers and close cleanly.
+    if suffix == ".jpg":
+        with open(out_path, "wb") as out_f:
+            out_f.write(img_file.data)
+    else:
+        pil_image = img_file.image
+        if pil_image is None:
+            raise ValueError(
+                f"PIL image unavailable for image {img_idx} on page {page_num}"
+            )
+        try:
+            pil_image.save(out_path, format="PNG")
+        finally:
+            if hasattr(pil_image, "close"):
+                try:
+                    pil_image.close()
+                except Exception:
+                    pass
+
+    return out_path
+
+
+def _extract_page_images_from_page(
+    page: Any,
+    page_num: int,
+    output_prefix: Path,
+) -> list[Path]:
+    """Extract embedded images from a resolved pypdf PageObject."""
+    output_paths = []
+    for img_idx, img_file in enumerate(page.images):
+        out_path = _save_extracted_image(img_file, img_idx, page_num, output_prefix)
+        output_paths.append(out_path)
+    return sorted(output_paths)
 
 
 def extract_images(
     pdf_path: Path,
     page_num: int,
     output_prefix: Path,
+    *,
+    reader: Any = None,
 ) -> list[Path]:
     """Extract embedded images from a single PDF page using pypdf."""
     from pdf_goon.models import PdfGoonError
@@ -20,44 +74,64 @@ def extract_images(
     try:
         import pypdf
 
-        output_paths = []
-        with open(pdf_path, "rb") as f:
-            reader = pypdf.PdfReader(f)
+        if reader is not None:
             page = reader.pages[page_num - 1]
+            return _extract_page_images_from_page(page, page_num, output_prefix)
 
-            for img_idx, img_file in enumerate(page.images):
-                suffix = Path(img_file.name).suffix.lower()
-                if suffix == ".jpeg":
-                    suffix = ".jpg"
-                if suffix not in (".png", ".jpg"):
-                    suffix = ".png"
-
-                out_path = (
-                    output_prefix.parent / f"{output_prefix.name}-{img_idx:03d}{suffix}"
-                )
-
-                # pypdf's img_file.data for JPEGs is valid DCTDecode bytes.
-                # However, for FlateDecode (PNG), it might be raw zlib bytes instead of a valid PNG file.
-                # To guarantee valid image files, we save non-JPEGs using PIL.
-                if suffix == ".jpg":
-                    with open(out_path, "wb") as out_f:
-                        out_f.write(img_file.data)
-                else:
-                    # Save as PNG using the PIL Image object to construct valid headers
-                    pil_image = img_file.image
-                    if pil_image is None:
-                        raise ValueError(
-                            f"PIL image unavailable for image {img_idx} on page {page_num}"
-                        )
-                    pil_image.save(out_path, format="PNG")
-
-                output_paths.append(out_path)
-
-        return sorted(output_paths)
+        with open(pdf_path, "rb") as f:
+            reader_obj = pypdf.PdfReader(f)
+            page = reader_obj.pages[page_num - 1]
+            return _extract_page_images_from_page(page, page_num, output_prefix)
     except Exception as exc:
         raise PdfGoonError(
             f"Failed to extract images from page {page_num} with pypdf: {exc}"
         ) from exc
+
+
+class PypdfExtractSession:
+    """Sequential extraction session holding an open reader handle."""
+
+    def __init__(self, pdf_path: Path) -> None:
+        self.pdf_path = pdf_path
+        self._f: Any = open(pdf_path, "rb")
+        self.reader: Any = None
+        try:
+            import pypdf
+
+            self.reader = pypdf.PdfReader(self._f)
+        except Exception:
+            self.close()
+            raise
+
+    def extract_images(self, page_num: int, output_prefix: Path) -> list[Path]:
+        """Extract embedded images for a page using the active reader handle."""
+        from pdf_goon.models import PdfGoonError
+
+        if self.reader is None:
+            raise RuntimeError("PypdfExtractSession is closed or uninitialized")
+        try:
+            page = self.reader.pages[page_num - 1]
+            return _extract_page_images_from_page(page, page_num, output_prefix)
+        except Exception as exc:
+            raise PdfGoonError(
+                f"Failed to extract images from page {page_num} with pypdf session: {exc}"
+            ) from exc
+
+    def close(self) -> None:
+        """Close open file and reader handles."""
+        if hasattr(self, "_f") and self._f is not None:
+            try:
+                self._f.close()
+            except Exception:
+                pass
+            self._f = None
+        self.reader = None
+
+    def __enter__(self) -> PypdfExtractSession:
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        self.close()
 
 
 def _get_worker_cmd() -> list[str]:

@@ -11,7 +11,12 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 import pytest
 
-from pdf_goon.extract import extract_images, render_batch, render_page
+from pdf_goon.extract import (
+    PypdfExtractSession,
+    extract_images,
+    render_batch,
+    render_page,
+)
 from pdf_goon.models import PageInfo, PdfGoonError, SubprocessError
 
 
@@ -90,6 +95,86 @@ class TestExtractImages:
         with mock.patch("pypdf.PdfReader", side_effect=Exception("bad")):
             with pytest.raises(PdfGoonError, match="Failed to extract"):
                 extract_images(pdf_path, 1, tmp_path / "out")
+
+
+class TestExtractSession:
+    """Tests for PypdfExtractSession lifecycle, context management, and memory cleanup."""
+
+    def test_extract_session_lifecycle(self, tmp_path: Path) -> None:
+        """PypdfExtractSession extracts images across multiple pages without re-opening."""
+        with mock.patch("pypdf.PdfReader") as mock_reader_cls:
+            mock_reader = mock.MagicMock()
+            mock_reader_cls.return_value = mock_reader
+
+            mock_img1 = mock.MagicMock()
+            mock_img1.name = "page1.jpg"
+            mock_img1.data = b"page1_jpg_data"
+
+            mock_img2 = mock.MagicMock()
+            mock_img2.name = "page2.jpg"
+            mock_img2.data = b"page2_jpg_data"
+
+            page1 = mock.MagicMock()
+            page1.images = [mock_img1]
+            page2 = mock.MagicMock()
+            page2.images = [mock_img2]
+            mock_reader.pages = [page1, page2]
+
+            pdf_path = tmp_path / "book.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4 dummy")
+
+            with PypdfExtractSession(pdf_path) as session:
+                res1 = session.extract_images(1, tmp_path / "page_1")
+                res2 = session.extract_images(2, tmp_path / "page_2")
+
+                assert len(res1) == 1 and res1[0].suffix == ".jpg"
+                assert len(res2) == 1 and res2[0].suffix == ".jpg"
+                assert mock_reader_cls.call_count == 1
+
+            with pytest.raises(RuntimeError, match="PypdfExtractSession is closed"):
+                session.extract_images(1, tmp_path / "page_1")
+
+    def test_extract_png_closes_pil_image(self, tmp_path: Path) -> None:
+        """Extracting PNG explicitly calls pil_image.close() to free memory."""
+        with mock.patch("pypdf.PdfReader") as mock_reader_cls:
+            mock_reader = mock.MagicMock()
+            mock_reader_cls.return_value = mock_reader
+
+            mock_pil = mock.MagicMock()
+            mock_img = mock.MagicMock()
+            mock_img.name = "page1.png"
+            mock_img.image = mock_pil
+
+            page1 = mock.MagicMock()
+            page1.images = [mock_img]
+            mock_reader.pages = [page1]
+
+            pdf_path = tmp_path / "book.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4 dummy")
+
+            res = extract_images(pdf_path, 1, tmp_path / "out")
+            assert len(res) == 1
+            mock_pil.save.assert_called_once()
+            mock_pil.close.assert_called_once()
+
+    def test_pipeline_multi_page_extract_session(self, tmp_path: Path) -> None:
+        """process_single_pdf leverages PypdfExtractSession for multi-page extraction."""
+        from pdf_goon.core import process_single_pdf
+        from pdf_goon.models import Config
+        from tests.synthetic_fixtures import make_two_page_spread_pdf
+
+        pdf_path = tmp_path / "multi.pdf"
+        make_two_page_spread_pdf(pdf_path)
+
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        cfg = Config(path=tmp_path, optimize=False)
+
+        res = process_single_pdf(pdf_path, ws, cfg)
+        assert res.success is True
+        assert res.pages_processed == 1
+        out_file = pdf_path.parent / pdf_path.stem / "001.jpg"
+        assert out_file.exists()
 
 
 class TestRenderPage:

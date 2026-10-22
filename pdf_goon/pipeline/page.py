@@ -88,11 +88,14 @@ def _execute_page_action(
     page_info: PageInfo,
     extract_backend: Any,
     render_backend: Any,
+    extract_session: Any = None,
 ) -> tuple[list[Path], bool]:
     """Execute either image extraction or full-page rendering."""
     if decision.mode == ProcessingMode.EXTRACT:
         local_prefix = workspace / f"page_{page}_tmp"
         logger.info("    Page %02d: Extracting ...", page)
+        if extract_session is not None and hasattr(extract_session, "extract_images"):
+            return extract_session.extract_images(page, local_prefix), False
         return extract_backend.extract_images(pdf_path, page, local_prefix), False
 
     render_prefix = workspace / f"render_{page}_tmp"
@@ -119,6 +122,7 @@ def _process_page(
     decision_info: (
         tuple[PageDecision, list[ImageInfo], list[str], PageInfo] | None
     ) = None,
+    extract_session: Any = None,
 ) -> PageResult:
     """Process a single page: analyze, extract/render, optimize, rename."""
     try:
@@ -135,7 +139,7 @@ def _process_page(
             return PageResult(page_num=page, mode=ProcessingMode.BLANK, files_produced=())
 
         generated_files, was_rendered = _execute_page_action(
-            pdf_path, page, workspace, decision, page_info, _extract, _render
+            pdf_path, page, workspace, decision, page_info, _extract, _render, extract_session
         )
         output_files = _finalize_page_files(
             generated_files, mask_indices, was_rendered, page, output_dir, config

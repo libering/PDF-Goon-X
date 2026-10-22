@@ -10,11 +10,13 @@ from pdf_goon.backends import (
     BatchRenderBackend,
     ExtractBackend,
     PdfAnalyzeSession,
+    PdfExtractSession,
     PypdfAnalyzeBackend,
     PypdfExtractBackend,
     Pypdfium2RenderBackend,
     RenderBackend,
     SessionAnalyzeBackend,
+    SessionExtractBackend,
 )
 from pdf_goon.core import process_batch
 from pdf_goon.models import Config, ImageInfo, PageInfo, make_config
@@ -64,6 +66,11 @@ def test_default_extract_backend_is_extract_backend() -> None:
     **Validates: Requirements 4.1**
     """
     assert isinstance(PypdfExtractBackend(), ExtractBackend)
+
+
+def test_default_extract_backend_is_session_extract_backend() -> None:
+    """PypdfExtractBackend structurally satisfies SessionExtractBackend."""
+    assert isinstance(PypdfExtractBackend(), SessionExtractBackend)
 
 
 def test_default_render_backend_is_render_backend() -> None:
@@ -272,6 +279,14 @@ def test_session_analyze_backend_protocol() -> None:
     assert isinstance(backend, SessionAnalyzeBackend)
     assert hasattr(backend, "open_session")
     assert hasattr(PdfAnalyzeSession, "inspect_page")
+
+
+def test_session_extract_backend_protocol() -> None:
+    """PypdfExtractBackend structurally satisfies SessionExtractBackend."""
+    backend = PypdfExtractBackend()
+    assert isinstance(backend, SessionExtractBackend)
+    assert hasattr(backend, "open_session")
+    assert hasattr(PdfExtractSession, "extract_images")
 
 
 def test_batch_render_backend_protocol() -> None:

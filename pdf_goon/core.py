@@ -70,6 +70,16 @@ class _DefaultExtractBackend:
     ) -> list[Path]:
         return extract_images(pdf_path, page_num, output_prefix)
 
+    def open_session(self, pdf_path: Path):
+        import sys
+
+        core = sys.modules.get("pdf_goon.core")
+        if core and getattr(core, "extract_images", None) is not extract_images:
+            return None
+        from pdf_goon.extract import PypdfExtractSession
+
+        return PypdfExtractSession(pdf_path)
+
 
 class _DefaultRenderBackend:
     """Delegates to module-level render_page (patchable by tests)."""
