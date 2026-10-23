@@ -32,7 +32,7 @@ def optimize_image(
     cmd = _build_command(suffix)
 
     try:
-        run(cmd + [str(image_path)])
+        run(cmd + [str(image_path.resolve())])
     except SubprocessError as exc:
         logger.warning("Optimization failed for %s: %s", image_path.name, exc)
         return 0

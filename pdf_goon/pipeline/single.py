@@ -314,7 +314,9 @@ def process_single_pdf(
     if not valid:
         return ProcessResult(pdf_path=pdf_path, success=False, error=err)
 
-    base_output_path = pdf_path.parent / pdf_path.stem
+    raw_stem = pdf_path.stem.strip()
+    stem = "unnamed_pdf" if (not raw_stem or raw_stem.startswith(".")) else raw_stem
+    base_output_path = pdf_path.parent / stem
     output_dir = get_unique_path(base_output_path, is_dir=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info("  Processing: %s (%d pages)", pdf_path.name, page_count)

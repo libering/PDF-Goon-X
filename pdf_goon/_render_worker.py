@@ -27,6 +27,9 @@ def _normalize_rendered_image(pil_image: Image.Image) -> Image.Image:
     return pil_image
 
 
+MAX_RENDER_PIXELS: int = 100_000_000  # 100 megapixels (~400MB RGBA buffer)
+
+
 def _render_single_page_to_file(
     pdf: Any, page_num: int, dpi: float, output_path: Path
 ) -> None:
@@ -35,7 +38,21 @@ def _render_single_page_to_file(
     bitmap: Any = None
     pil_image: Any = None
     try:
-        bitmap = page.render(scale=dpi / 72.0)
+        scale = max(0.5, min(dpi, 2400.0)) / 72.0
+        if hasattr(page, "get_size"):
+            try:
+                size = page.get_size()
+                if isinstance(size, (tuple, list)) and len(size) >= 2:
+                    w_pts, h_pts = float(size[0]), float(size[1])
+                    if int(w_pts * scale) * int(h_pts * scale) > MAX_RENDER_PIXELS:
+                        raise ValueError(
+                            f"Page {page_num} render dimensions exceed maximum limit of {MAX_RENDER_PIXELS} pixels"
+                        )
+            except ValueError:
+                raise
+            except Exception:
+                pass
+        bitmap = page.render(scale=scale)
         pil_image = bitmap.to_pil()
         normalized_img = _normalize_rendered_image(pil_image)
         normalized_img.save(output_path)

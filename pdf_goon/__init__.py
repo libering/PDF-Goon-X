@@ -8,6 +8,18 @@ from pathlib import Path
 from pdf_goon.core import process_batch
 from pdf_goon.models import VERSION, Config, ProcessResult, make_config
 
+# Configure pypdf decompression limits for high-resolution print/comic scans (up to 256MB)
+try:
+    import pypdf.filters
+
+    _SAFE_BUFFER_LIMIT = 256 * 1024 * 1024
+    if hasattr(pypdf.filters, "ZLIB_MAX_OUTPUT_LENGTH"):
+        pypdf.filters.ZLIB_MAX_OUTPUT_LENGTH = _SAFE_BUFFER_LIMIT
+    if hasattr(pypdf.filters, "FLATE_MAX_BUFFER_SIZE"):
+        pypdf.filters.FLATE_MAX_BUFFER_SIZE = _SAFE_BUFFER_LIMIT
+except Exception:
+    pass
+
 __all__ = ["Config", "ProcessResult", "VERSION", "process"]
 
 

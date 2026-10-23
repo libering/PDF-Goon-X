@@ -102,8 +102,19 @@ class PypdfSession:
         mask_indices: list[str] = []
         non_mask_count = 0
 
-        for img_idx, img_file in enumerate(page.images):
-            width, height, color, xobj = _extract_xobj_metadata(img_file)
+        try:
+            page_images = page.images
+        except Exception as exc:
+            logger.warning("Error accessing page.images: %s", exc)
+            return images, mask_indices
+
+        for img_idx, img_file in enumerate(page_images):
+            try:
+                width, height, color, xobj = _extract_xobj_metadata(img_file)
+            except Exception as exc:
+                logger.warning("Error extracting image %d metadata: %s", img_idx, exc)
+                continue
+
             if is_true_pdf_mask(xobj):
                 mask_indices.append(str(img_idx).zfill(3))
             else:

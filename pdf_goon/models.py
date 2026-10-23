@@ -14,6 +14,7 @@ DPI_MIN: int = 36
 DPI_MAX: int = 2400
 MIN_WIDTH_DEFAULT: int = 500
 PROGRESS_BAR_LENGTH: int = 20
+MAX_RENDER_PIXELS: int = 100_000_000  # 100 megapixels (~400MB RGBA buffer)
 TRICKY_COLORS: frozenset[str] = frozenset({"devn", "cmyk", "sep", "colortransform0"})
 
 
