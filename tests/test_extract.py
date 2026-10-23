@@ -316,6 +316,24 @@ def valid_render_inputs(draw: st.DrawFn) -> tuple[Path, int, float, Path]:
     return pdf_path, page_num, dpi, output_prefix
 
 
+def _assert_render_cmd(
+    cmd: list[str],
+    pdf_path: Path,
+    page_num: int,
+    dpi: float,
+    expected_out: Path,
+) -> None:
+    """Assert command structure matches Requirement 2.2."""
+    assert cmd[0] == sys.executable
+    assert cmd[1] == "-m"
+    assert cmd[2] == "pdf_goon._render_worker"
+    assert cmd[3] == str(pdf_path)
+    assert cmd[4] == str(page_num)
+    assert cmd[5] == str(dpi)
+    assert cmd[6] == str(expected_out)
+    assert len(cmd) == 7
+
+
 class TestRenderCommandConstruction:
     """Property test: render_page() constructs the correct command list."""
 
@@ -325,20 +343,12 @@ class TestRenderCommandConstruction:
         self,
         data: tuple[Path, int, float, Path],
     ) -> None:
-        """render_page() SHALL construct a command of the form:
-        [sys.executable, "-m", "pdf_goon._render_worker",
-         str(pdf_path), str(page_num), str(dpi), str(output_path)]
-        and pass it to the `run` callable.
-        """
+        """render_page() SHALL construct a command matching design spec."""
         pdf_path, page_num, dpi, output_prefix = data
-
-        # Capture the command passed to the run callable
         captured_cmds: list[list[str]] = []
 
         def capturing_run(cmd: list[str]) -> str:
-            """Fake run: captures command, creates expected output file."""
             captured_cmds.append(cmd)
-            # render_page expects the output file to exist after run completes
             out_file = output_prefix.with_suffix(".png")
             if out_file.name == output_prefix.name:
                 out_file = output_prefix.parent / f"{output_prefix.name}.png"
@@ -347,7 +357,6 @@ class TestRenderCommandConstruction:
             return ""
 
         page_info = PageInfo(width_pts=612.0, height_pts=792.0)
-
         render_page(
             pdf_path,
             page_num=page_num,
@@ -357,24 +366,12 @@ class TestRenderCommandConstruction:
             run=capturing_run,
         )
 
-        # Exactly one command must have been issued
         assert len(captured_cmds) == 1
-        cmd = captured_cmds[0]
-
-        # Compute expected output path (mirrors render_page's logic)
         expected_out = output_prefix.with_suffix(".png")
         if expected_out.name == output_prefix.name:
             expected_out = output_prefix.parent / f"{output_prefix.name}.png"
 
-        # Verify command structure per design spec (Requirement 2.2)
-        assert cmd[0] == sys.executable
-        assert cmd[1] == "-m"
-        assert cmd[2] == "pdf_goon._render_worker"
-        assert cmd[3] == str(pdf_path)
-        assert cmd[4] == str(page_num)
-        assert cmd[5] == str(dpi)
-        assert cmd[6] == str(expected_out)
-        assert len(cmd) == 7
+        _assert_render_cmd(captured_cmds[0], pdf_path, page_num, dpi, expected_out)
 
 
 class TestRenderBatch:

@@ -208,18 +208,26 @@ def special_char_pdf_paths(draw: st.DrawFn) -> Path:
     return Path(f"C:/tmp/{dir_name}/{stem}.pdf")
 
 
+def _assert_special_char_cmd(
+    cmd: list[str],
+    pdf_path: Path,
+    page_num: int,
+    dpi: float,
+) -> None:
+    """Assert structured CLI command preserves special characters."""
+    assert len(cmd) == 7
+    assert cmd[1] == "-m"
+    assert cmd[2] == "pdf_goon._render_worker"
+    assert cmd[3] == str(pdf_path)
+    assert cmd[4] == str(page_num)
+    assert cmd[5] == str(dpi)
+    assert cmd[6].endswith(".png")
+
+
 class TestSpecialCharacterPathHandling:
     """Property 5: Special character path handling.
 
     Validates: Requirements 2.9
-
-    For any valid PDF file path containing spaces, CJK characters, or parentheses,
-    when passed as a structured CLI argument to _render_worker.py, the worker SHALL
-    correctly resolve and open the file without path quoting errors.
-
-    The key insight: because render_page() uses a list of strings (structured CLI args)
-    instead of an f-string inline script, each argument is a separate element — special
-    characters are preserved as-is without any quoting/escaping transformations.
     """
 
     @settings(max_examples=100)
@@ -236,23 +244,14 @@ class TestSpecialCharacterPathHandling:
         page_num: int,
         dpi: float,
     ) -> None:
-        """render_page passes paths with special characters as-is in the arg list.
-
-        Validates: Requirements 2.9
-        """
-        # Why: create the ephemeral output dir inside the test body rather than
-        # via the function-scoped `tmp_path` fixture, which Hypothesis rejects
-        # because it is not reset between generated examples.
+        """render_page passes paths with special characters as-is in the arg list."""
         with tempfile.TemporaryDirectory() as td:
             output_prefix = Path(td) / "output"
             page_info = PageInfo(width_pts=612.0, height_pts=792.0)
-
-            # Capture the command list passed to `run`
             captured_cmds: list[list[str]] = []
 
             def capturing_run(cmd: list[str]) -> str:
                 captured_cmds.append(cmd)
-                # Create the expected output file so render_page() doesn't fail
                 out_file = Path(cmd[-1])
                 out_file.parent.mkdir(parents=True, exist_ok=True)
                 out_file.write_bytes(b"\x89PNG fake")
@@ -268,21 +267,4 @@ class TestSpecialCharacterPathHandling:
             )
 
             assert len(captured_cmds) == 1
-            cmd = captured_cmds[0]
-
-            # Verify command structure: [executable, "-m", "pdf_goon._render_worker", path, page, dpi, out]
-            assert len(cmd) == 7
-            assert cmd[1] == "-m"
-            assert cmd[2] == "pdf_goon._render_worker"
-
-            # The pdf_path argument (cmd[3]) is exactly str(pdf_path) — no quoting/escaping
-            assert cmd[3] == str(pdf_path)
-
-            # The page_num argument is the string representation
-            assert cmd[4] == str(page_num)
-
-            # The dpi argument is the string representation
-            assert cmd[5] == str(dpi)
-
-        # The output path (cmd[6]) ends with .png and is a valid path string
-        assert cmd[6].endswith(".png")
+            _assert_special_char_cmd(captured_cmds[0], pdf_path, page_num, dpi)
