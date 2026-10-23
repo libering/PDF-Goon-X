@@ -1,10 +1,62 @@
-"""Standalone render worker: renders a single PDF page via pypdfium2."""
+"""Standalone render worker: renders PDF page(s) via pypdfium2 with memory management."""
 
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
+from typing import Any
+
+from PIL import Image, ImageChops
+
+
+def _normalize_rendered_image(pil_image: Image.Image) -> Image.Image:
+    """Normalize grayscale rendered pages from 24/32-bit to 8-bit mode L/LA without loss."""
+    if pil_image.mode == "RGB":
+        r, g, b = pil_image.split()
+        if not ImageChops.difference(r, g).getbbox() and not ImageChops.difference(r, b).getbbox():
+            converted = pil_image.convert("L")
+            pil_image.close()
+            return converted
+    elif pil_image.mode == "RGBA":
+        r, g, b, _ = pil_image.split()
+        if not ImageChops.difference(r, g).getbbox() and not ImageChops.difference(r, b).getbbox():
+            converted = pil_image.convert("LA")
+            pil_image.close()
+            return converted
+    return pil_image
+
+
+def _render_single_page_to_file(
+    pdf: Any, page_num: int, dpi: float, output_path: Path
+) -> None:
+    """Render a single page, normalize color space, and deterministically free C memory."""
+    page = pdf[page_num - 1]
+    bitmap: Any = None
+    pil_image: Any = None
+    try:
+        bitmap = page.render(scale=dpi / 72.0)
+        pil_image = bitmap.to_pil()
+        normalized_img = _normalize_rendered_image(pil_image)
+        normalized_img.save(output_path)
+        if normalized_img is not pil_image and hasattr(normalized_img, "close"):
+            normalized_img.close()
+    finally:
+        if pil_image is not None and hasattr(pil_image, "close"):
+            try:
+                pil_image.close()
+            except Exception:
+                pass
+        if bitmap is not None and hasattr(bitmap, "close"):
+            try:
+                bitmap.close()
+            except Exception:
+                pass
+        if hasattr(page, "close"):
+            try:
+                page.close()
+            except Exception:
+                pass
 
 
 def run_batch_render(pdf_path: Path, tasks: list[dict]) -> None:
@@ -20,11 +72,7 @@ def run_batch_render(pdf_path: Path, tasks: list[dict]) -> None:
             dpi = float(task["dpi"])
             output_path = Path(task["out"])
             try:
-                page = pdf[page_num - 1]
-                bitmap = page.render(scale=dpi / 72.0)
-                pil_image = bitmap.to_pil()
-                pil_image.save(output_path)
-                page.close()
+                _render_single_page_to_file(pdf, page_num, dpi, output_path)
             except Exception as e:
                 had_error = True
                 sys.stderr.write(f"Error rendering page {page_num}: {e}\n")
@@ -75,11 +123,7 @@ def _handle_single_page_worker(args: list[str]) -> None:
         pdf_bytes = pdf_path.read_bytes()
         pdf = pdfium.PdfDocument(pdf_bytes)
         try:
-            page = pdf[page_num - 1]
-            bitmap = page.render(scale=dpi / 72.0)
-            pil_image = bitmap.to_pil()
-            pil_image.save(output_path)
-            page.close()
+            _render_single_page_to_file(pdf, page_num, dpi, output_path)
         finally:
             pdf.close()
     except Exception as exc:

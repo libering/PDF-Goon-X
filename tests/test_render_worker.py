@@ -268,3 +268,62 @@ class TestSpecialCharacterPathHandling:
 
             assert len(captured_cmds) == 1
             _assert_special_char_cmd(captured_cmds[0], pdf_path, page_num, dpi)
+
+
+# ---------------------------------------------------------------------------
+# Tests for memory lifecycle and color normalization in _render_worker
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_rendered_image_rgb_grayscale_converts_to_l() -> None:
+    from PIL import Image
+    from pdf_goon._render_worker import _normalize_rendered_image
+
+    img = Image.new("RGB", (100, 100), (128, 128, 128))
+    norm = _normalize_rendered_image(img)
+    assert norm.mode == "L"
+    assert norm.size == (100, 100)
+    assert norm.getpixel((50, 50)) == 128
+
+
+def test_normalize_rendered_image_rgb_color_retains_rgb() -> None:
+    from PIL import Image
+    from pdf_goon._render_worker import _normalize_rendered_image
+
+    img = Image.new("RGB", (100, 100), (200, 128, 100))
+    norm = _normalize_rendered_image(img)
+    assert norm.mode == "RGB"
+    assert norm.size == (100, 100)
+    assert norm.getpixel((50, 50)) == (200, 128, 100)
+
+
+def test_normalize_rendered_image_rgba_grayscale_converts_to_la() -> None:
+    from PIL import Image
+    from pdf_goon._render_worker import _normalize_rendered_image
+
+    img = Image.new("RGBA", (100, 100), (80, 80, 80, 255))
+    norm = _normalize_rendered_image(img)
+    assert norm.mode == "LA"
+    assert norm.size == (100, 100)
+
+
+def test_render_single_page_frees_memory_and_closes_handles(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock
+    from PIL import Image
+    from pdf_goon._render_worker import _render_single_page_to_file
+
+    mock_pdf = MagicMock()
+    mock_page = MagicMock()
+    mock_bitmap = MagicMock()
+    mock_pdf.__getitem__.return_value = mock_page
+    mock_page.render.return_value = mock_bitmap
+    real_pil = Image.new("RGB", (10, 10), (255, 255, 255))
+    mock_bitmap.to_pil.return_value = real_pil
+
+    out_file = tmp_path / "rendered.png"
+    _render_single_page_to_file(mock_pdf, 1, 150.0, out_file)
+
+    assert out_file.exists()
+    assert mock_page.close.called
+    assert mock_bitmap.close.called
+
