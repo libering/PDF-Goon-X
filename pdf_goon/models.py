@@ -15,6 +15,7 @@ DPI_MAX: int = 2400
 MIN_WIDTH_DEFAULT: int = 500
 PROGRESS_BAR_LENGTH: int = 20
 MAX_RENDER_PIXELS: int = 100_000_000  # 100 megapixels (~400MB RGBA buffer)
+MAX_DEFAULT_WORKERS: int = 4
 TRICKY_COLORS: frozenset[str] = frozenset({"devn", "cmyk", "sep", "colortransform0"})
 
 
@@ -47,6 +48,7 @@ class Config:
     debug: bool = False
     keep_blank: bool = False
     margin_tolerance: float = 3.0
+    jobs: int = 1
 
 
 @dataclass(frozen=True)
@@ -118,31 +120,32 @@ class SubprocessError(PdfGoonError):
 # --- Factory ---
 
 
+def _clamp_dpi(raw_dpi: object) -> int:
+    """Clamp DPI to configured safe bounds [DPI_MIN, DPI_MAX]."""
+    dpi = raw_dpi if isinstance(raw_dpi, int) else int(str(raw_dpi or 400))
+    if dpi < DPI_MIN:
+        warnings.warn(
+            f"DPI {dpi} is very low. Clamping to minimum {DPI_MIN}.",
+            stacklevel=3,
+        )
+        return DPI_MIN
+    if dpi > DPI_MAX:
+        warnings.warn(
+            f"DPI {dpi} is extremely high. Clamping to maximum {DPI_MAX}.",
+            stacklevel=3,
+        )
+        return DPI_MAX
+    return dpi
+
+
 def make_config(**kwargs: object) -> Config:
     """Construct a validated Config, clamping DPI and checking path existence."""
-    # Resolve path
     raw_path = kwargs.get("path", ".")
     path = Path(str(raw_path)).resolve()
     if not path.exists():
         raise ValueError(f"Path does not exist: {path}")
 
-    # Clamp dpi_text
-    raw_dpi = kwargs.get("dpi_text", 400)
-    dpi_text = raw_dpi if isinstance(raw_dpi, int) else int(str(raw_dpi))
-    if dpi_text < DPI_MIN:
-        warnings.warn(
-            f"DPI {dpi_text} is very low. Clamping to minimum {DPI_MIN}.",
-            stacklevel=2,
-        )
-        dpi_text = DPI_MIN
-    elif dpi_text > DPI_MAX:
-        warnings.warn(
-            f"DPI {dpi_text} is extremely high. Clamping to maximum {DPI_MAX}.",
-            stacklevel=2,
-        )
-        dpi_text = DPI_MAX
-
-    # debug implies verbose
+    dpi_text = _clamp_dpi(kwargs.get("dpi_text", 400))
     debug = bool(kwargs.get("debug", False))
     verbose = bool(kwargs.get("verbose", False)) or debug
 
@@ -150,9 +153,10 @@ def make_config(**kwargs: object) -> Config:
     min_width_val = raw_min_w if isinstance(raw_min_w, int) else int(str(raw_min_w))
 
     raw_margin = kwargs.get("margin_tolerance", 3.0)
-    margin_tolerance_val = (
-        float(raw_margin) if raw_margin is not None else 3.0  # type: ignore[arg-type]
-    )
+    margin_tolerance_val = float(raw_margin) if raw_margin is not None else 3.0  # type: ignore[arg-type]
+
+    raw_jobs = kwargs.get("jobs", 1)
+    jobs_val = max(0, int(str(raw_jobs if raw_jobs is not None else 1)))
 
     return Config(
         path=path,
@@ -166,4 +170,5 @@ def make_config(**kwargs: object) -> Config:
         debug=debug,
         keep_blank=bool(kwargs.get("keep_blank", False)),
         margin_tolerance=margin_tolerance_val,
+        jobs=jobs_val,
     )

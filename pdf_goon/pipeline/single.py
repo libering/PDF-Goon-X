@@ -95,7 +95,15 @@ def _render_batch_pages(
 ) -> tuple[list[PageResult], int]:
     """Execute batch render and finalization of rendered files."""
     results: list[PageResult] = []
-    render_backend.render_batch(pdf_path, render_tasks)
+    from pdf_goon.concurrency import resolve_worker_count
+
+    effective_workers = resolve_worker_count(config.jobs, len(render_tasks))
+    try:
+        render_backend.render_batch(
+            pdf_path, render_tasks, max_workers=effective_workers
+        )
+    except TypeError:
+        render_backend.render_batch(pdf_path, render_tasks)
     for page in render_pages:
         decision, _, mask_indices, page_info = decisions[page]
         logger.info("    Page %02d: %s", page, decision.reason)

@@ -16,7 +16,7 @@ DESCRIPTION = (
 
 
 def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
-    """Add core processing CLI arguments."""
+    """Add core path, batch, and concurrency CLI arguments."""
     parser.add_argument(
         "path",
         nargs="?",
@@ -41,6 +41,18 @@ def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Recursively search all subdirectories for PDF files",
     )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Number of parallel worker processes (0 for auto, default: 1)",
+    )
+
+
+def _add_image_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add image extraction and tuning arguments."""
     parser.add_argument(
         "-dpi-text",
         type=int,
@@ -109,6 +121,7 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog=f"Version {VERSION} | Credits: Uses pypdf, pypdfium2, and Pingo.exe. | Author: Dnkz",
     )
     _add_core_arguments(parser)
+    _add_image_arguments(parser)
     _add_diagnostic_arguments(parser)
     parser.set_defaults(optimize=True)
     return parser
@@ -169,7 +182,8 @@ def _print_banner_and_summary(args: argparse.Namespace) -> None:
         f"| Replace: {args.replace} "
         f"| DPI for Textpages: {args.dpi_text} "
         f"| Min-Width: {args.min_w}px "
-        f"| Lossless Optimization: {args.optimize}"
+        f"| Lossless Optimization: {args.optimize} "
+        f"| Jobs: {args.jobs}"
     )
     print("=" * 60)
 
@@ -189,6 +203,7 @@ def _execute_process(args: argparse.Namespace) -> int:
             debug=args.debug,
             keep_blank=args.keep_blank,
             margin_tolerance=args.margin_tolerance,
+            jobs=args.jobs,
         )
         print("All Done.")
         return 0

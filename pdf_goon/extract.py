@@ -175,25 +175,26 @@ def render_page(
     return [out_file]
 
 
-def render_batch(
+def _chunk_tasks(tasks: list[dict], chunk_count: int) -> list[list[dict]]:
+    """Partition tasks into approximately equal-sized chunks."""
+    k = max(1, min(chunk_count, len(tasks)))
+    return [tasks[i::k] for i in range(k) if tasks[i::k]]
+
+
+def _execute_render_worker_chunk(
     pdf_path: Path,
-    tasks: list[dict],
-    *,
-    run: Callable[[list[str]], str] = run_command,
-) -> list[Path]:
-    """Render multiple PDF pages in a single batch worker subprocess."""
+    chunk: list[dict],
+    run: Callable[[list[str]], str],
+) -> None:
+    """Execute a single batch worker subprocess for a tasks chunk."""
     import json
     import tempfile
     from pdf_goon.models import PdfGoonError, SubprocessError
 
-    if not tasks:
-        return []
-
-    # Write tasks to a temporary JSON file to avoid shell argument length limits
     with tempfile.NamedTemporaryFile(
         "w", suffix=".json", delete=False, encoding="utf-8"
     ) as f:
-        json.dump(tasks, f)
+        json.dump(chunk, f)
         tasks_file = Path(f.name)
 
     cmd = _get_worker_cmd() + [
@@ -213,5 +214,32 @@ def render_batch(
             tasks_file.unlink(missing_ok=True)
         except Exception:
             pass
+
+
+def render_batch(
+    pdf_path: Path,
+    tasks: list[dict],
+    *,
+    max_workers: int = 1,
+    run: Callable[[list[str]], str] = run_command,
+) -> list[Path]:
+    """Render multiple PDF pages with optional multi-worker subprocess parallelism."""
+    if not tasks:
+        return []
+
+    workers = max(1, min(max_workers, len(tasks)))
+    if workers <= 1 or len(tasks) <= 2:
+        _execute_render_worker_chunk(pdf_path, tasks, run)
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        chunks = _chunk_tasks(tasks, workers)
+        with ThreadPoolExecutor(max_workers=len(chunks)) as executor:
+            futures = [
+                executor.submit(_execute_render_worker_chunk, pdf_path, chunk, run)
+                for chunk in chunks
+            ]
+            for f in futures:
+                f.result()
 
     return [Path(t["out"]) for t in tasks]

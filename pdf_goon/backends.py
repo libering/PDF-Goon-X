@@ -167,7 +167,8 @@ class Pypdfium2RenderBackend:
         self,
         pdf_path: Path,
         tasks: list[dict],
+        max_workers: int = 1,
     ) -> list[Path]:
         from pdf_goon.extract import render_batch
 
-        return render_batch(pdf_path, tasks)
+        return render_batch(pdf_path, tasks, max_workers=max_workers)

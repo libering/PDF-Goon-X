@@ -36,6 +36,7 @@ def process(
     debug: bool = False,
     keep_blank: bool = False,
     margin_tolerance: float = 3.0,
+    jobs: int = 1,
     progress_callback: Callable[[int, int, Path], None] | None = None,
 ) -> list[ProcessResult]:
     """Process PDF files at the given path. Primary public API."""
@@ -51,5 +52,6 @@ def process(
         debug=debug,
         keep_blank=keep_blank,
         margin_tolerance=margin_tolerance,
+        jobs=jobs,
     )
     return process_batch(config, progress_callback=progress_callback)
