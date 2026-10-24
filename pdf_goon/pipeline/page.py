@@ -144,6 +144,12 @@ def _process_page(
         output_files = _finalize_page_files(
             generated_files, mask_indices, was_rendered, page, output_dir, config
         )
+        if not output_files:
+            err_msg = f"Zero files produced for page {page} with mode {decision.mode.value}"
+            logger.error("    Page %02d: %s", page, err_msg)
+            return PageResult(
+                page_num=page, mode=decision.mode, files_produced=(), error=err_msg
+            )
         return PageResult(
             page_num=page, mode=decision.mode, files_produced=tuple(output_files)
         )

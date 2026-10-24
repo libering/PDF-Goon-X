@@ -104,36 +104,34 @@ class PypdfSession:
 
         try:
             page_images = page.images
-        except Exception as exc:
-            logger.warning("Error accessing page.images: %s", exc)
-            return images, mask_indices
+            for img_idx, img_file in enumerate(page_images):
+                try:
+                    width, height, color, xobj = _extract_xobj_metadata(img_file)
+                except Exception as exc:
+                    logger.warning("Error extracting image %d metadata: %s", img_idx, exc)
+                    continue
 
-        for img_idx, img_file in enumerate(page_images):
-            try:
-                width, height, color, xobj = _extract_xobj_metadata(img_file)
-            except Exception as exc:
-                logger.warning("Error extracting image %d metadata: %s", img_idx, exc)
-                continue
-
-            if is_true_pdf_mask(xobj):
-                mask_indices.append(str(img_idx).zfill(3))
-            else:
-                bbox = (
-                    image_bboxes[non_mask_count]
-                    if non_mask_count < len(image_bboxes)
-                    else None
-                )
-                images.append(
-                    ImageInfo(
-                        width=width,
-                        height=height,
-                        color=color,
-                        is_mask=False,
-                        placed_bbox=bbox,
-                        has_rotation=has_rotation,
+                if is_true_pdf_mask(xobj):
+                    mask_indices.append(str(img_idx).zfill(3))
+                else:
+                    bbox = (
+                        image_bboxes[non_mask_count]
+                        if non_mask_count < len(image_bboxes)
+                        else None
                     )
-                )
-                non_mask_count += 1
+                    images.append(
+                        ImageInfo(
+                            width=width,
+                            height=height,
+                            color=color,
+                            is_mask=False,
+                            placed_bbox=bbox,
+                            has_rotation=has_rotation,
+                        )
+                    )
+                    non_mask_count += 1
+        except Exception as exc:
+            logger.warning("Error accessing or iterating page.images: %s", exc)
 
         return images, mask_indices
 
