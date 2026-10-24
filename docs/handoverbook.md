@@ -24,6 +24,7 @@ PDF-Goon 是一個 CLI 工具和 Python 庫，用於從 PDF 檔案中提取高�
 
 2. **智慧自愈與管線整合 (Define Errors Out of Existence)**：
    - `pdf_goon/_render_worker.py`：將原先直接拋出 `ValueError` 中斷的硬阻斷邏輯，重構為自適應智慧切換。當頁面投影像素超過 100 MP 或任一單邊超過 16,384 像素時，自動切換至瓦片分塊渲染引擎，保證大型畫布平滑完成渲染。
+   - **畫布物理自適應箝位 (`pdf_goon/analyze/decide.py`)**：新增 `_clamp_canvas_dpi`，針對巨幅畫布（如 $4000\,\text{pt}$ 單邊）自動箝位渲染 DPI 於 400 MP 安全上限（`SAFE_CANVAS_PIXELS = 400_000_000`），防止因頁面內嵌微型圖片（placed bbox 極小）推算出 2400 DPI 導致總畫布暴增至 12.7 GP 解壓炸彈規模。
    - 安全邊界防禦：保留 500 MP 上限防禦（Pillow 解壓炸彈保護），若遇到 77 GP 級別的惡意解壓炸彈則安全拒絕。
    - CLI 與 Public API：新增 `--tiles` 命令列參數，`pdf_goon.models.Config` 與 `pdf_goon.process()` 新增 `tiles: bool = False` 支援。
 
@@ -33,8 +34,11 @@ PDF-Goon 是一個 CLI 工具和 Python 庫，用於從 PDF 檔案中提取高�
      - 全倉庫代碼 100% 符合單檔 $\le 500$ 行、單函式 $\le 50$ 行之硬約束（`tests/test_architecture_limits.py` 綠燈）。
      - CodeGraph 圖譜已同步完成（`codegraph sync`，新增 9 個、修改 8 個節點）。
    - **實體特徵證據 (Physical Artifact Evidence)**：
-     - 測試樣本：真實世界 198.6 MP 木衛一極限地質圖（`commons_usgs_io_geological_map.pdf`，3983x2872 pts，300 DPI 下解析度達 $16,596 \times 11,967\,\text{px}$）。
-     - 實測結果：以常數記憶體安全（單瓦片 $\sim 67\,\text{MB}$，不崩潰、無 OOM），在 **10.18 秒** 內成功拼合完成，產出 **56.17 MB** 之無縫超高清 PNG 圖像。
+     - **測試樣本 1（巨型地質圖）**：真實世界木衛一地質圖（`commons_usgs_io_geological_map.pdf`，3983x2872 pts，自適應箝位至 400 MP，解析度達 $23,553 \times 16,983\,\text{px}$）。
+     - **測試樣本 2（高畫質加密本）**：真實世界日漫《egihid.pdf》（72.8 MB，128 頁 AES 標準加密全彩滿版）。
+     - **免安裝二進位執行檔實測**：使用 PyInstaller 單檔封裝產物 `dist/pdf-goon.exe`（25.17 MB）直接執行：
+       - `egihid.pdf` 128 頁全數滿版無損抽取（`EXTRACT` 100% 成功）。
+       - `io_map.pdf` 自適應瓦片矩陣平移渲染與無縫拼合，產出 **66.43 MB**（$23,553 \times 16,983\,\text{px}$）之超高清無縫 PNG，常數記憶體安全，0 崩潰、0 報錯，Process Exit Code 0。
 
 1. **JBIG2 解碼平滑容錯 (`pdf_goon/analyze/session.py`)**：
    - 修復先前遍歷 `page.images` 惰性生成器時，因缺少本機 `jbig2dec` 二進位執行檔而直接拋出 `DependencyError` 導致管線崩潰的重大缺陷。
