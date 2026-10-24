@@ -770,8 +770,14 @@ ruff format pdf_goon tests
 - **Git Tag**：`v1.0.0`（同步至本地與遠端 `origin`）
 
 ### ⬜ 待執行（後續展望）
-- 監控社群對 `v1.0.0` 正式發布後的回饋（特別是 E-Hentai 討論串 Dnkz 與 scanlation 社群）。
-- 規劃未來選配的多執行緒/多程序批次加速（針對極大量多檔案批次處理）。
+- **社群回饋與邊界監控**：持續監控社群對極端印刷本、多色彩空間與大圖渲染的邊界案例反饋。
+- **技術儲備與衍生分支：PDF-Goon Compact 構想（留待未來規劃）**：
+  - **核心定位分工**：
+    - **原版 (PDF-Goon Core)**：堅持單一純粹初衷——專注「極致還原畫質 (Pristine Fidelity)」，包含無損直接提取與 PDFium 100% 零像素漂移渲染，不引入複雜容器或瀏覽切片格式，保持零多餘依賴。
+    - **進階版 (PDF-Goon Compact)**：作為超集或衍生工具，承接 Core 的提取與瓦片渲染引擎，擴充專注於巨型畫布之儲存、分發與檢視體驗：
+      - **選項 2：Tile Pyramid & Deep Zoom**（多階降採樣金字塔、DZI / Slippy Map 目錄結構、Web 流式隨機載入，防檢視端 OOM）。
+      - **選項 3：Compact Container Archive**（SQLite/MBTiles 鍵值容器、TAR/ZIP 串流封裝、單檔防磁碟碎片、支援無解壓隨機讀取）。
+  - **規劃形式**：未來啟動時開立專屬 PRD (`docs/prd-compact.md`) 與獨立 OpenSpec 變更包，保持原版 PRD (`docs/prd.md`) 的純粹性。
 
 
 
