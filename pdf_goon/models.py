@@ -49,6 +49,7 @@ class Config:
     keep_blank: bool = False
     margin_tolerance: float = 3.0
     jobs: int = 1
+    tiles: bool = False
 
 
 @dataclass(frozen=True)
@@ -171,4 +172,5 @@ def make_config(**kwargs: object) -> Config:
         keep_blank=bool(kwargs.get("keep_blank", False)),
         margin_tolerance=margin_tolerance_val,
         jobs=jobs_val,
+        tiles=bool(kwargs.get("tiles", False)),
     )

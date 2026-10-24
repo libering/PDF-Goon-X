@@ -88,6 +88,7 @@ class TestProcessDelegatesToCore:
             keep_blank=False,
             margin_tolerance=3.0,
             jobs=1,
+            tiles=False,
         )
 
         # process_batch was called with the constructed config

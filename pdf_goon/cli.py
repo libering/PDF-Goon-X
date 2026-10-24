@@ -73,6 +73,11 @@ def _add_image_arguments(parser: argparse.ArgumentParser) -> None:
         dest="optimize",
         help="Disable lossless image optimization",
     )
+    parser.add_argument(
+        "--tiles",
+        action="store_true",
+        help="Enable tiled rendering engine for extreme canvases or extract tile sets",
+    )
 
 
 def _add_diagnostic_arguments(parser: argparse.ArgumentParser) -> None:
@@ -183,7 +188,8 @@ def _print_banner_and_summary(args: argparse.Namespace) -> None:
         f"| DPI for Textpages: {args.dpi_text} "
         f"| Min-Width: {args.min_w}px "
         f"| Lossless Optimization: {args.optimize} "
-        f"| Jobs: {args.jobs}"
+        f"| Jobs: {args.jobs} "
+        f"| Tiles: {args.tiles}"
     )
     print("=" * 60)
 
@@ -204,6 +210,7 @@ def _execute_process(args: argparse.Namespace) -> int:
             keep_blank=args.keep_blank,
             margin_tolerance=args.margin_tolerance,
             jobs=args.jobs,
+            tiles=args.tiles,
         )
         print("All Done.")
         return 0

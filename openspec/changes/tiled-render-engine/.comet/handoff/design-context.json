@@ -1,0 +1,13 @@
+{
+  "change": "tiled-render-engine",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "5d6baaae4d18aee19a8fdee7dcc45d35b54b9a8dffb24e766bc3b1ced3e85883",
+  "files": [
+    { "path": "openspec/changes/tiled-render-engine/proposal.md", "sha256": "c24a3b986fca67d9f0cd7455896c5b0057595b1d0b9b8d6a640599d86fc05e80" },
+    { "path": "openspec/changes/tiled-render-engine/design.md", "sha256": "c972e070f584ed144fcfdaa8108339e588f724b97e9bc4784b33a7994bdae36a" },
+    { "path": "openspec/changes/tiled-render-engine/tasks.md", "sha256": "30079d487dad931343e253555845f9157262319639e1c40edb837b0f8c1e2c74" }
+  ]
+}

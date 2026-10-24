@@ -208,6 +208,16 @@ def _open_extract_session(extract_backend: Any, pdf_path: Path) -> Any:
     return None
 
 
+def _append_render_task(
+    workspace: Path, page: int, decision: Any, tiles: bool,
+    tasks: list[dict], pages: list[int],
+) -> None:
+    """Register a render task and record page number."""
+    out_file = (workspace / f"render_{page}_tmp").with_suffix(".png")
+    tasks.append({"page": page, "dpi": decision.dpi, "out": str(out_file), "tiles": tiles})
+    pages.append(page)
+
+
 def _process_immediate_pages(
     pdf_path: Path,
     page_count: int,
@@ -243,9 +253,7 @@ def _process_immediate_pages(
                 page_results.append(res)
                 completed_pages += 1
             else:
-                out_file = (workspace / f"render_{page}_tmp").with_suffix(".png")
-                render_tasks.append({"page": page, "dpi": decision.dpi, "out": str(out_file)})
-                render_pages.append(page)
+                _append_render_task(workspace, page, decision, config.tiles, render_tasks, render_pages)
                 continue
 
             if not config.verbose:
@@ -258,6 +266,7 @@ def _process_immediate_pages(
                 pass
 
     return page_results, render_tasks, render_pages, completed_pages
+
 
 
 def _dispatch_page_execution(

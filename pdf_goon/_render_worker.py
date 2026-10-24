@@ -30,50 +30,75 @@ def _normalize_rendered_image(pil_image: Image.Image) -> Image.Image:
 MAX_RENDER_PIXELS: int = 100_000_000  # 100 megapixels (~400MB RGBA buffer)
 
 
-def _render_single_page_to_file(
-    pdf: Any, page_num: int, dpi: float, output_path: Path
-) -> None:
-    """Render a single page, normalize color space, and deterministically free C memory."""
-    page = pdf[page_num - 1]
+def _close_safely(obj: Any) -> None:
+    """Deterministically call close() on object if present, ignoring errors."""
+    if obj is not None and hasattr(obj, "close"):
+        try:
+            obj.close()
+        except Exception:
+            pass
+
+
+def _get_page_pts(page: Any) -> tuple[float, float]:
+    """Extract width and height in points from page, falling back to 0.0."""
+    if hasattr(page, "get_size"):
+        try:
+            size = page.get_size()
+            if isinstance(size, (tuple, list)) and len(size) >= 2:
+                return float(size[0]), float(size[1])
+        except Exception:
+            pass
+    return 0.0, 0.0
+
+
+def _render_standard_page(page: Any, scale: float, output_path: Path) -> None:
+    """Render page directly via pypdfium2 without tiling and normalize color space."""
     bitmap: Any = None
     pil_image: Any = None
     try:
-        scale = max(0.5, min(dpi, 2400.0)) / 72.0
-        if hasattr(page, "get_size"):
-            try:
-                size = page.get_size()
-                if isinstance(size, (tuple, list)) and len(size) >= 2:
-                    w_pts, h_pts = float(size[0]), float(size[1])
-                    if int(w_pts * scale) * int(h_pts * scale) > MAX_RENDER_PIXELS:
-                        raise ValueError(
-                            f"Page {page_num} render dimensions exceed maximum limit of {MAX_RENDER_PIXELS} pixels"
-                        )
-            except ValueError:
-                raise
-            except Exception:
-                pass
         bitmap = page.render(scale=scale)
         pil_image = bitmap.to_pil()
         normalized_img = _normalize_rendered_image(pil_image)
         normalized_img.save(output_path)
-        if normalized_img is not pil_image and hasattr(normalized_img, "close"):
-            normalized_img.close()
+        if normalized_img is not pil_image:
+            _close_safely(normalized_img)
     finally:
-        if pil_image is not None and hasattr(pil_image, "close"):
-            try:
-                pil_image.close()
-            except Exception:
-                pass
-        if bitmap is not None and hasattr(bitmap, "close"):
-            try:
-                bitmap.close()
-            except Exception:
-                pass
-        if hasattr(page, "close"):
-            try:
-                page.close()
-            except Exception:
-                pass
+        _close_safely(pil_image)
+        _close_safely(bitmap)
+        _close_safely(page)
+
+
+MAX_CANVAS_PIXELS: int = 500_000_000  # 500 megapixels (Pillow limit defense against bombs)
+
+
+def _render_single_page_to_file(
+    pdf: Any,
+    page_num: int,
+    dpi: float,
+    output_path: Path,
+    force_tiles: bool = False,
+) -> None:
+    """Render single page: switches to tiled engine on large canvases or renders standard."""
+    from pdf_goon.models import PageInfo
+    from pdf_goon.render.tiler import render_page_tiled, should_tile_render
+
+    page = pdf[page_num - 1]
+    scale = max(0.5, min(dpi, 2400.0)) / 72.0
+    w_pts, h_pts = _get_page_pts(page)
+    if round(w_pts * scale) * round(h_pts * scale) > MAX_CANVAS_PIXELS:
+        raise ValueError(
+            f"Page {page_num} render dimensions exceed maximum limit of {MAX_CANVAS_PIXELS} pixels"
+        )
+    page_info = PageInfo(width_pts=w_pts, height_pts=h_pts)
+
+    if w_pts > 0 and h_pts > 0 and should_tile_render(page_info, dpi, force_tiles=force_tiles):
+        try:
+            render_page_tiled(page, output_path, dpi, page_info)
+        finally:
+            _close_safely(page)
+        return
+
+    _render_standard_page(page, scale, output_path)
 
 
 def run_batch_render(pdf_path: Path, tasks: list[dict]) -> None:
@@ -88,8 +113,11 @@ def run_batch_render(pdf_path: Path, tasks: list[dict]) -> None:
             page_num = int(task["page"])
             dpi = float(task["dpi"])
             output_path = Path(task["out"])
+            force_tiles = bool(task.get("tiles", False))
             try:
-                _render_single_page_to_file(pdf, page_num, dpi, output_path)
+                _render_single_page_to_file(
+                    pdf, page_num, dpi, output_path, force_tiles=force_tiles
+                )
             except Exception as e:
                 had_error = True
                 sys.stderr.write(f"Error rendering page {page_num}: {e}\n")
@@ -119,9 +147,9 @@ def _handle_batch_worker(args: list[str]) -> None:
 
 def _handle_single_page_worker(args: list[str]) -> None:
     """Parse args and execute single page render."""
-    if len(args) != 4:
+    if len(args) not in (4, 5):
         sys.stderr.write(
-            "Usage: _render_worker <pdf_path> <page_num> <dpi> <output_path>\n"
+            "Usage: _render_worker <pdf_path> <page_num> <dpi> <output_path> [--tiles]\n"
         )
         sys.exit(1)
 
@@ -130,6 +158,7 @@ def _handle_single_page_worker(args: list[str]) -> None:
         page_num = int(args[1])
         dpi = float(args[2])
         output_path = Path(args[3])
+        force_tiles = len(args) == 5 and args[4] in ("--tiles", "tiles", "True", "true")
     except (ValueError, TypeError) as exc:
         sys.stderr.write(f"Argument error: {exc}\n")
         sys.exit(1)
@@ -140,7 +169,9 @@ def _handle_single_page_worker(args: list[str]) -> None:
         pdf_bytes = pdf_path.read_bytes()
         pdf = pdfium.PdfDocument(pdf_bytes)
         try:
-            _render_single_page_to_file(pdf, page_num, dpi, output_path)
+            _render_single_page_to_file(
+                pdf, page_num, dpi, output_path, force_tiles=force_tiles
+            )
         finally:
             pdf.close()
     except Exception as exc:
