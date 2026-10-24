@@ -55,6 +55,22 @@ def _calc_image_dpi(
     return candidate_dpi
 
 
+SAFE_CANVAS_PIXELS: int = 400_000_000  # 400 MP safe canvas ceiling for tiled rendering
+
+
+def _clamp_canvas_dpi(dpi: float, page_info: PageInfo) -> float:
+    """Clamp DPI if page dimensions would exceed SAFE_CANVAS_PIXELS."""
+    if page_info.width_pts > 0 and page_info.height_pts > 0:
+        import math
+
+        max_safe = 72.0 * math.sqrt(
+            SAFE_CANVAS_PIXELS / (page_info.width_pts * page_info.height_pts)
+        )
+        if dpi > max_safe:
+            return max(float(DPI_MIN), max_safe)
+    return dpi
+
+
 def compute_render_dpi(
     images: list[ImageInfo],
     page_info: PageInfo,
@@ -63,13 +79,13 @@ def compute_render_dpi(
 ) -> float:
     """Calculate the best rendering DPI based on embedded image placed dimensions."""
     if not images:
-        return _clamp_dpi(float(dpi_text))
+        return _clamp_canvas_dpi(_clamp_dpi(float(dpi_text)), page_info)
 
     qualifying_images = [
         img for img in images if not (img.width < min_width and img.height < min_width)
     ]
     if not qualifying_images:
-        return _clamp_dpi(float(dpi_text))
+        return _clamp_canvas_dpi(_clamp_dpi(float(dpi_text)), page_info)
 
     candidates = [
         _calc_image_dpi(img, page_info, dpi_text) for img in qualifying_images
@@ -78,7 +94,8 @@ def compute_render_dpi(
     final_dpi = max(max_candidate, float(dpi_text))
     logger.debug(f"Selected render DPI: {final_dpi:.2f}")
 
-    return _clamp_dpi(final_dpi)
+    clamped = _clamp_canvas_dpi(_clamp_dpi(final_dpi), page_info)
+    return clamped
 
 
 # Alias for backwards compatibility
