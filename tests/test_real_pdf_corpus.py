@@ -30,7 +30,9 @@ def workspace(tmp_path: Path) -> Path:
 
 
 @pytest.mark.corpus
-def test_real_corpus_egihid_extract(workspace: Path, base_config: Config) -> None:
+def test_real_corpus_egihid_extract(
+    workspace: Path, base_config: Config, tmp_path: Path
+) -> None:
     """Regression test: egihid.pdf must extract all pages without dropping any as BLANK."""
     candidates = [
         Path(r"C:\Users\user\Downloads\Documents\egihid.pdf"),
@@ -40,11 +42,13 @@ def test_real_corpus_egihid_extract(workspace: Path, base_config: Config) -> Non
     if pdf_path is None:
         pytest.skip("egihid.pdf not found in local environment")
 
-    result = process_single_pdf(pdf_path, workspace, base_config)
+    out_dir = tmp_path / "out_egihid"
+    result = process_single_pdf(
+        pdf_path, workspace, base_config, output_dir=out_dir
+    )
     assert result.success is True
     assert result.pages_processed == 128
 
-    out_dir = pdf_path.parent / pdf_path.stem
     files = sorted(list(out_dir.glob("*")))
     assert len(files) == 128
     assert files[0].name == "001.png"
@@ -53,7 +57,7 @@ def test_real_corpus_egihid_extract(workspace: Path, base_config: Config) -> Non
 
 @pytest.mark.corpus
 def test_real_corpus_comic3_spread_alignment(
-    workspace: Path, base_config: Config
+    workspace: Path, base_config: Config, tmp_path: Path
 ) -> None:
     """Verifies comic3.pdf maintains 22/22 page continuity and extracts pure-white page 2."""
     candidates = [
@@ -64,11 +68,13 @@ def test_real_corpus_comic3_spread_alignment(
     if pdf_path is None:
         pytest.skip("コミック3.pdf not found in local environment")
 
-    result = process_single_pdf(pdf_path, workspace, base_config)
+    out_dir = tmp_path / "out_comic3"
+    result = process_single_pdf(
+        pdf_path, workspace, base_config, output_dir=out_dir
+    )
     assert result.success is True
     assert result.pages_processed == 22
 
-    out_dir = pdf_path.parent / pdf_path.stem
     files = sorted(list(out_dir.glob("*")))
     assert len(files) == 22
     assert files[0].name == "001.png"
@@ -78,7 +84,7 @@ def test_real_corpus_comic3_spread_alignment(
 
 @pytest.mark.corpus
 def test_real_corpus_novel_spread_render(
-    workspace: Path, base_config: Config
+    workspace: Path, base_config: Config, tmp_path: Path
 ) -> None:
     """Verifies Japanese novel spread with Form XObjects renders all pages without dropping as BLANK."""
     candidates = [
@@ -94,10 +100,13 @@ def test_real_corpus_novel_spread_render(
     if pdf_path is None:
         pytest.skip("novel spread PDF not found in local environment")
 
-    result = process_single_pdf(pdf_path, workspace, base_config)
+    out_dir = tmp_path / "out_novel"
+    result = process_single_pdf(
+        pdf_path, workspace, base_config, output_dir=out_dir
+    )
     assert result.success is True
     assert result.pages_processed == 54
 
-    out_dir = pdf_path.parent / pdf_path.stem
     files = list(out_dir.glob("*_r.png"))
     assert len(files) == 54
+

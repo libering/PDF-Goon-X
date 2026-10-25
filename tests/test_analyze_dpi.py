@@ -4,6 +4,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from pdf_goon.analyze import decide_processing_mode
+from pdf_goon.analyze.decide import _clamp_canvas_dpi
 from pdf_goon.models import (
     DPI_MAX,
     DPI_MIN,
@@ -47,11 +48,13 @@ def test_prop1_candidate_dpi_formula(
     expected_width_dpi = (img_width * 72) / width_pts
     expected_height_dpi = (img_height * 72) / height_pts
     expected_candidate = max(expected_width_dpi, expected_height_dpi)
-    expected_final = max(
+    raw_final = max(
         DPI_MIN, min(DPI_MAX, max(expected_candidate, float(dpi_text)))
     )
+    expected_final = _clamp_canvas_dpi(raw_final, page_info)
 
     assert abs(decision.dpi - expected_final) < 0.01
+
 
 
 # Property 2: Filtering Gate and Max Selection

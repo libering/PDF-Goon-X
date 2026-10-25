@@ -313,6 +313,12 @@ def _dispatch_page_execution(
     return all_results
 
 
+def _resolve_output_dir(pdf_path: Path) -> Path:
+    raw_stem = pdf_path.stem.strip()
+    stem = "unnamed_pdf" if (not raw_stem or raw_stem.startswith(".")) else raw_stem
+    return get_unique_path(pdf_path.parent / stem, is_dir=True)
+
+
 def process_single_pdf(
     pdf_path: Path,
     workspace: Path,
@@ -322,6 +328,7 @@ def process_single_pdf(
     analyze_backend: AnalyzeBackend | None = None,
     extract_backend: ExtractBackend | None = None,
     render_backend: RenderBackend | None = None,
+    output_dir: Path | None = None,
 ) -> ProcessResult:
     """Process one PDF file. Returns structured result."""
     _analyze, _extract, _render = _resolve_backends(
@@ -331,11 +338,8 @@ def process_single_pdf(
     if not valid:
         return ProcessResult(pdf_path=pdf_path, success=False, error=err)
 
-    raw_stem = pdf_path.stem.strip()
-    stem = "unnamed_pdf" if (not raw_stem or raw_stem.startswith(".")) else raw_stem
-    base_output_path = pdf_path.parent / stem
-    output_dir = get_unique_path(base_output_path, is_dir=True)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    target_dir = output_dir if output_dir is not None else _resolve_output_dir(pdf_path)
+    target_dir.mkdir(parents=True, exist_ok=True)
     logger.info("  Processing: %s (%d pages)", pdf_path.name, page_count)
 
     decisions = _analyze_pages_phase(pdf_path, page_count, _analyze, config)
@@ -344,7 +348,7 @@ def process_single_pdf(
         page_count,
         decisions,
         workspace,
-        output_dir,
+        target_dir,
         config,
         _analyze,
         _extract,
@@ -356,3 +360,4 @@ def process_single_pdf(
         trash_or_move(pdf_path, delete_dir)
 
     return ProcessResult(pdf_path=pdf_path, success=True, pages_processed=page_count)
+

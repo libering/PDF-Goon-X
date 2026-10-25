@@ -1,5 +1,5 @@
 Created At: 2026-06-21T07:15:07Z
-Last Updated: 2026-10-24T18:40:00Z
+Last Updated: 2026-10-25T12:24:00Z
 File Path: `file:///d:/vibe%20x/coding/%E9%96%8B%E6%BA%90/pdf-goon/docs/handoverbook.md`
 
 # PDF-Goon Handover Book
@@ -12,9 +12,22 @@ PDF-Goon 是一個 CLI 工具和 Python 庫，用於從 PDF 檔案中提取高�
 - 頁面只有一張大圖（>min_width, RGB/Gray）→ **EXTRACT**（直接提取，零品質損失）
 - 其他（多圖/混合內容/小圖/tricky color/純文字）→ **RENDER**（整頁渲染，DPI 由最大圖推算）
 
-## 目前狀態（2026-10-24 更新：瓦片分塊渲染引擎交付、TDD 韌性加固與全域公開語料庫建置）
+## 目前狀態（2026-10-25 更新：測試套件沙盒防污染隔離、瓦片渲染引擎交付與執行檔發布）
+
+### ✅ 測試套件防污染隔離與自訂輸出目錄加固
+
+1. **問題根源 (Grounds & Warrant)**：
+   先前 `process_single_pdf` 未提供指定輸出資料夾之參數，硬編碼直接輸出至 `pdf_path.parent / stem`。導致在執行真實世界語料庫測試（`tests/test_real_pdf_corpus.py`）時，若 PDF 位於測試用目錄或本機目錄（如 `Downloads/Documents` 或 `real_test_pdfs`），測試解壓及渲染的圖片產物直接洩漏至該目錄下，造成檔案污染。
+2. **修復主張 (Claim) 與深模組架構**：
+   - `pdf_goon/pipeline/single.py`：新增獨立輔助函式 `_resolve_output_dir(pdf_path: Path) -> Path`；在 `process_single_pdf` 中增加可選參數 `output_dir: Path | None = None`。若傳入 `output_dir` 則精確使用指定目錄，未傳入則保持向後相容。全檔與函式長度均嚴格受控。
+   - `tests/test_real_pdf_corpus.py`：所有真實語料庫測試（`egihid`、`コミック3`、`novel_spread`）統一透過 pytest `tmp_path` 注入 `output_dir = tmp_path / "out_xxx"`，確保測試產物 100% 侷限於沙盒暫存區，測試結束後自動被 pytest 銷毀，外部目錄零污染。
+   - `tests/test_analyze_dpi.py`：Property-based 測試同步適配 400 MP 安全畫布箝位防禦（`_clamp_canvas_dpi`）。
+3. **實證驗收 (Dual-Evidence Verification)**：
+   - **邏輯證據 (Logical Evidence)**：244 個單元測試 + 3 個真實樣本語料庫測試 100% 綠燈通過。全倉庫嚴格通過 `tests/test_architecture_limits.py`（單檔 $\le 500$ 行、單函式 $\le 50$ 行）。
+   - **實體特徵證據 (Physical Artifact Evidence)**：執行全套測試後，`real_test_pdfs` 內部資料夾增量為 0，無任何外洩圖片或子目錄。
 
 ### ✅ 瓦片分塊渲染引擎 (Tiled Render Engine) 正式交付 (Commit: `25c7fe1`)
+
 
 1. **模組架構與底層矩陣運算 (`pdf_goon/render/tiler.py`)**：
    - 實現獨立深模組 `pdf_goon/render/tiler.py`，完整封裝 PDFium C-API (`FPDF_RenderPageBitmapWithMatrix`)、仿射平移矩陣運算與記憶體即時釋放。
