@@ -1,5 +1,5 @@
 Created At: 2026-06-21T07:15:07Z
-Last Updated: 2026-10-25T12:24:00Z
+Last Updated: 2026-10-25T12:35:00Z
 File Path: `file:///d:/vibe%20x/coding/%E9%96%8B%E6%BA%90/pdf-goon/docs/handoverbook.md`
 
 # PDF-Goon Handover Book
@@ -12,9 +12,26 @@ PDF-Goon 是一個 CLI 工具和 Python 庫，用於從 PDF 檔案中提取高�
 - 頁面只有一張大圖（>min_width, RGB/Gray）→ **EXTRACT**（直接提取，零品質損失）
 - 其他（多圖/混合內容/小圖/tricky color/純文字）→ **RENDER**（整頁渲染，DPI 由最大圖推算）
 
-## 目前狀態（2026-10-25 更新：測試套件沙盒防污染隔離、瓦片渲染引擎交付與執行檔發布）
+## 目前狀態（2026-10-25 更新：v1.2.0 正式版發布、瓦片分塊引擎與測試沙盒隔離）
+
+### ✅ v1.2.0 正式發布 (Release Gate)
+
+1. **核心功能升級亮點**：
+   - **多進程並行調度架構 (`-j / --jobs`)**：支援多核並發加速批次處理，實測真實彩色漫畫《コミック3》獲得 **1.80x** 實質加速。
+   - **瓦片分塊渲染引擎 (`--tiles`)**：封裝 PDFium 矩陣平移渲染與 Padding-and-Crop 邊緣外擴裁切技術，達成 100% 零接縫、零像素漂移；支援單張高解析度大圖無縫合成或結構化瓦片目錄導出。
+   - **自適應安全畫布箝位 (`SAFE_CANVAS_PIXELS = 400_000_000`)**：針對微型 placed bbox 推算 2400 DPI 之異常巨型畫布平滑箝位至 400 MP 安全上限，杜絕 12.7 GP 解壓炸彈崩潰與 OOM。
+   - **測試套件沙盒防污染加固**：`process_single_pdf` 新增 `output_dir` 參數，真實語料庫測試 100% 侷限於沙盒 `tmp_path`，徹底根除本機目錄污染。
+2. **免安裝獨立執行檔發布**：
+   - `dist/pdf-goon.exe` (25.17 MB)
+     - SHA-256: `9A8ABBD6F0DD14A7D8EA43F942EEF42B6EBD54B16FC0FEC5E3DD8CD9FA3D0E81`
+   - `dist/pdf-goon-v1.2.0-windows-x64.zip` (24.91 MB)
+     - SHA-256: `C29AB82093CE43CBC2D472D9FF38CE352F169AD8B6E411FB26A21DE1FD69343E`
+3. **驗證與測試**：
+   - 全套 244 個單元測試 + 3 個真實樣本語料庫測試 100% 綠燈通過。
+   - 全倉庫 100% 符合單檔 $\le 500$ 行、單函式 $\le 50$ 行之架構硬約束。
 
 ### ✅ 測試套件防污染隔離與自訂輸出目錄加固
+
 
 1. **問題根源 (Grounds & Warrant)**：
    先前 `process_single_pdf` 未提供指定輸出資料夾之參數，硬編碼直接輸出至 `pdf_path.parent / stem`。導致在執行真實世界語料庫測試（`tests/test_real_pdf_corpus.py`）時，若 PDF 位於測試用目錄或本機目錄（如 `Downloads/Documents` 或 `real_test_pdfs`），測試解壓及渲染的圖片產物直接洩漏至該目錄下，造成檔案污染。
